@@ -1,0 +1,187 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1560" height="2340" viewBox="0 0 1560 2340">
+  <style>
+    text { font-family: 'Microsoft YaHei','PingFang SC',sans-serif; fill:#263238; }
+    .title { font-size:30px; font-weight:bold; }
+    .sub   { font-size:17px; fill:#78909c; }
+    .grp   { font-size:21px; font-weight:bold; }
+    .l1    { font-size:19px; font-weight:bold; }
+    .ln    { font-size:17px; }
+    .nb    { font-size:16px; }
+    .edge  { font-size:15px; fill:#455a64; }
+  </style>
+  <defs>
+    <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0L10,5L0,10z" fill="#546e7a"/>
+    </marker>
+    <marker id="arR" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0L10,5L0,10z" fill="#c62828"/>
+    </marker>
+  </defs>
+  <rect width="1560" height="2340" fill="#ffffff"/>
+
+  <text x="780" y="48" text-anchor="middle" class="title">fla-npu GDN 前向：逻辑流程 × Cube/Vector 拍图（A5 / arch35 融合链）</text>
+  <text x="780" y="80" text-anchor="middle" class="sub">AIC = AI Core（含矩阵乘单元，下称 C）｜ AIV = AI Vector Core（向量单元，下称 V）｜ 同链 C→V→C→V 用跨核旗标（SetFlag/WaitFlag）握手</text>
+
+  <!-- legend -->
+  <rect x="60" y="100" width="52" height="30" rx="8" fill="#ffe3bd" stroke="#e65100" stroke-width="2"/>
+  <text x="122" y="121" class="ln" font-weight="bold">C = Cube 拍（矩阵乘：KKT · 求逆 · W/U · 状态写入 · 注意力）</text>
+  <rect x="620" y="100" width="52" height="30" rx="8" fill="#cfe3fa" stroke="#12518c" stroke-width="2"/>
+  <text x="682" y="121" class="ln" font-weight="bold">V = Vector 拍（逐元素：归一化 · 掩码 · 指数 · 衰减 · 融合）</text>
+  <text x="1210" y="121" class="nb">实线箭头 = 串行依赖　∥ = 并行重叠</text>
+
+  <!-- input -->
+  <rect x="430" y="160" width="700" height="58" rx="12" fill="#ddebfa" stroke="#1565c0" stroke-width="2.5"/>
+  <text x="780" y="196" text-anchor="middle" class="l1">输入：q 查询 · k 标签 · v 内容 · β 写入门 · g 衰减量（log 空间，fp32）</text>
+  <line x1="780" y1="218" x2="780" y2="258" stroke="#546e7a" stroke-width="2" marker-end="url(#ar)"/>
+
+  <!-- ============ Kernel 1: Prepare ============ -->
+  <rect x="60" y="262" width="1440" height="762" rx="14" fill="#fbfcfd" stroke="#9fb0bd" stroke-width="1.6" stroke-dasharray="7 5"/>
+  <text x="780" y="294" text-anchor="middle" class="grp">Kernel ① Prepare（MIX AIC:AIV = 1:2）＝ Phase A 相似度/衰减起步 ＋ Phase B 债务表与求逆 ＋ Phase C WY 重构</text>
+
+  <rect x="140" y="315" width="620" height="95" rx="12" fill="#cfe3fa" stroke="#12518c" stroke-width="2"/>
+  <text x="450" y="342" text-anchor="middle" class="l1">AIV · S0＋S1 【V】</text>
+  <text x="450" y="368" text-anchor="middle" class="ln">S0 生成常驻辅助（I_vcs / scatter 索引 / L1 清零）</text>
+  <text x="450" y="392" text-anchor="middle" class="ln">S1 k̂ = L2Norm(k) 上传 L1；β sigmoid、g′ 前缀和准备</text>
+
+  <rect x="800" y="315" width="620" height="95" rx="12" fill="#f2f4f6" stroke="#8d9aa5" stroke-width="1.8"/>
+  <text x="1110" y="342" text-anchor="middle" class="l1">AIC 此刻空闲（灰）</text>
+  <text x="1110" y="368" text-anchor="middle" class="ln">K·Kᵀ 只需 k、cumsum 只需 g —— 两路零依赖，</text>
+  <text x="1110" y="392" text-anchor="middle" class="ln">在 arch35 中合并到 AIV 侧先算，AIC 等旗标再开工</text>
+
+  <line x1="450" y1="410" x2="450" y2="440" stroke="#546e7a" stroke-width="2" marker-end="url(#ar)"/>
+  <text x="470" y="432" class="edge">串行·旗标</text>
+
+  <rect x="330" y="444" width="900" height="66" rx="12" fill="#ffe3bd" stroke="#e65100" stroke-width="2"/>
+  <text x="780" y="471" text-anchor="middle" class="l1">AIC · S2 【C】 相似度表：KKT = k̂ · k̂ᵀ（64×64，每个 key head 一次，L0 ping-pong）</text>
+  <text x="780" y="496" text-anchor="middle" class="ln">它记下谁会撞上谁的检索 —— 债务表的原料</text>
+
+  <line x1="780" y1="510" x2="780" y2="540" stroke="#546e7a" stroke-width="2" marker-end="url(#ar)"/>
+
+  <rect x="330" y="544" width="900" height="82" rx="12" fill="#cfe3fa" stroke="#12518c" stroke-width="2"/>
+  <text x="780" y="571" text-anchor="middle" class="l1">AIV · S3 【V】 债务表：G = exp*(g_i − g_j)；L = KKT ⊙ G，只保留严格下三角（i &gt; j）</text>
+  <text x="780" y="596" text-anchor="middle" class="ln">leaf 分块打包（32×32 象限），−L 经 MTE3 上传 L1，置旗标叫号 AIC</text>
+  <text x="780" y="618" text-anchor="middle" class="ln">（对角线被排除：自己不欠自己的账）</text>
+
+  <!-- fan out to S4 and S6 (parallel) -->
+  <line x1="600" y1="626" x2="450" y2="660" stroke="#546e7a" stroke-width="2" marker-end="url(#ar)"/>
+  <line x1="960" y1="626" x2="1110" y2="660" stroke="#546e7a" stroke-width="2" marker-end="url(#ar)"/>
+  <text x="780" y="650" text-anchor="middle" class="edge" font-weight="bold">∥ 并行起点：S4 与 S6 无数据依赖，两条车道同时开算</text>
+
+  <rect x="140" y="664" width="620" height="95" rx="12" fill="#ffe3bd" stroke="#e65100" stroke-width="2"/>
+  <text x="450" y="691" text-anchor="middle" class="l1">AIC · S4 【C】 分块求逆 ①</text>
+  <text x="450" y="717" text-anchor="middle" class="ln">Y = I ＋ LeafLeft · (−L)（块矩阵乘累加）</text>
+  <text x="450" y="741" text-anchor="middle" class="ln">I·I 预填充藏在 Vector 拍之下，不占关键路径</text>
+
+  <rect x="800" y="664" width="620" height="95" rx="12" fill="#cfe3fa" stroke="#12518c" stroke-width="2"/>
+  <text x="1110" y="691" text-anchor="middle" class="l1">AIV · S6 【V】 右端组装　∥ 与 S4/S5 重叠</text>
+  <text x="1110" y="717" text-anchor="middle" class="ln">vb = v · β（天真写入 · 力度）</text>
+  <text x="1110" y="741" text-anchor="middle" class="ln">kbg = k̂ · β · exp*(g′)（挂在块初记忆上的系数）</text>
+
+  <line x1="450" y1="759" x2="450" y2="789" stroke="#546e7a" stroke-width="2" marker-end="url(#ar)"/>
+  <path d="M 1420 711 L 1470 711 L 1470 912 L 1236 912" fill="none" stroke="#546e7a" stroke-width="2" stroke-dasharray="6 4" marker-end="url(#ar)"/>
+  <text x="1353" y="880" text-anchor="middle" class="edge">S6 的右端供 S7 使用</text>
+
+  <rect x="330" y="793" width="900" height="62" rx="12" fill="#ffe3bd" stroke="#e65100" stroke-width="2"/>
+  <text x="780" y="819" text-anchor="middle" class="l1">AIC · S5 【C】 分块求逆 ②：A = LeafLeft ＋ Y · LeafRight ⇒ 结算矩阵 (I+L)⁻¹</text>
+  <text x="780" y="843" text-anchor="middle" class="ln">把 64 个互相牵连的天真写入，一次换算成互不牵连的净写入</text>
+
+  <rect x="330" y="872" width="900" height="80" rx="12" fill="#ffe3bd" stroke="#e65100" stroke-width="2"/>
+  <text x="780" y="899" text-anchor="middle" class="l1">AIC · S7 【C】 WY 重构：W = A · kbg（块初系数），U = A · vb（净写入）</text>
+  <text x="780" y="924" text-anchor="middle" class="ln">等 S5 的 A 与 S6 的右端都就绪；L0C 经 Fixpipe 直写 AIV UB</text>
+  <text x="780" y="946" text-anchor="middle" class="ln">—— 到这里块内串行递推彻底消失，剩下的全是矩阵乘</text>
+
+  <line x1="780" y1="952" x2="780" y2="976" stroke="#546e7a" stroke-width="2" marker-end="url(#ar)"/>
+  <rect x="330" y="980" width="900" height="40" rx="10" fill="#f2f4f6" stroke="#8d9aa5" stroke-width="1.6"/>
+  <text x="780" y="1006" text-anchor="middle" class="nb">GM 中转（kernel 间接力）：g_cumsum · A（可选）· w · u · k̂/q̂ →</text>
+
+  <!-- inter-kernel arrow -->
+  <line x1="780" y1="1024" x2="780" y2="1078" stroke="#546e7a" stroke-width="2.5" marker-end="url(#ar)"/>
+  <text x="800" y="1058" class="edge" font-weight="bold">kernel 间串行（GM 接力）</text>
+
+  <!-- ============ Kernel 2: FwdH ============ -->
+  <rect x="60" y="1082" width="1440" height="562" rx="14" fill="#fbfcfd" stroke="#9fb0bd" stroke-width="1.6" stroke-dasharray="7 5"/>
+  <text x="780" y="1114" text-anchor="middle" class="grp">Kernel ② FwdH ＝ Phase D 逐块状态递推（AIC ＋ 2×AIV 编队，每块四拍；同一序列块间串行）</text>
+
+  <rect x="330" y="1138" width="900" height="60" rx="12" fill="#ffe3bd" stroke="#e65100" stroke-width="2"/>
+  <text x="780" y="1164" text-anchor="middle" class="l1">AIC · C1 【C】 算回声：v_work = w · S_c</text>
+  <text x="780" y="1187" text-anchor="middle" class="ln">u 里有多少其实是块初记忆 S_c 的回响</text>
+
+  <line x1="780" y1="1198" x2="780" y2="1224" stroke="#546e7a" stroke-width="2" marker-end="url(#ar)"/>
+  <text x="800" y="1218" class="edge">串行·旗标（P 经 Fixpipe 直写 AIV UB）</text>
+
+  <rect x="330" y="1228" width="900" height="60" rx="12" fill="#cfe3fa" stroke="#12518c" stroke-width="2"/>
+  <text x="780" y="1254" text-anchor="middle" class="l1">AIV · V1 【V】 扣回声＋按写入时刻衰减：v_update = (u − v_work) ⊙ 衰减</text>
+  <text x="780" y="1277" text-anchor="middle" class="ln">衰减逐行不同 —— 每行写入时刻不同，查 g_cumsum 相减一次 exp</text>
+
+  <line x1="780" y1="1288" x2="780" y2="1314" stroke="#546e7a" stroke-width="2" marker-end="url(#ar)"/>
+  <text x="800" y="1308" class="edge">串行·旗标（right 写 GM workspace → L1）</text>
+
+  <rect x="330" y="1318" width="900" height="60" rx="12" fill="#ffe3bd" stroke="#e65100" stroke-width="2"/>
+  <text x="780" y="1344" text-anchor="middle" class="l1">AIC · C2 【C】 状态写入：h_work = kᵀ · v_update</text>
+  <text x="780" y="1367" text-anchor="middle" class="ln">64 个写入一次矩阵乘全部累加</text>
+
+  <line x1="780" y1="1378" x2="780" y2="1404" stroke="#546e7a" stroke-width="2" marker-end="url(#ar)"/>
+
+  <rect x="330" y="1408" width="900" height="60" rx="12" fill="#cfe3fa" stroke="#12518c" stroke-width="2"/>
+  <text x="780" y="1434" text-anchor="middle" class="l1">AIV · V2 【V】 合并：S_c+1 = 按行衰减 ⊙ S_c ＋ h_work</text>
+  <text x="780" y="1457" text-anchor="middle" class="ln">状态驻留 AIV UB ping-pong（零搬运）；存快照 h、v_new 供 FwdO 用</text>
+
+  <!-- chunk loop arrow -->
+  <path d="M 1234 1438 L 1300 1438 L 1300 1168 L 1238 1168" fill="none" stroke="#c62828" stroke-width="2.2" stroke-dasharray="8 5" marker-end="url(#arR)"/>
+  <text x="1312" y="1288" class="edge" fill="#c62828" font-weight="bold">
+    <tspan x="1312" dy="0">下一块 c+1</tspan>
+    <tspan x="1312" dy="22">同序列内块间串行</tspan>
+    <tspan x="1312" dy="22">（H 就绪旗标）</tspan>
+  </text>
+
+  <rect x="140" y="1490" width="1280" height="118" rx="12" fill="#fffbe6" stroke="#d4a017" stroke-width="1.8"/>
+  <text x="780" y="1518" text-anchor="middle" class="ln" font-weight="bold">∥ 并行与重叠（三处）：</text>
+  <text x="780" y="1544" text-anchor="middle" class="ln">① AIC 预取下一块 W/K（MTE2）与当前块 MMAD/Fixpipe 重叠（lookahead）</text>
+  <text x="780" y="1570" text-anchor="middle" class="ln">② AIV0/AIV1 各管 2 个 head，双 local slot 双缓冲　③ 不同序列 / 不同头分片到 28 组 AIC+AIV 核全并行</text>
+  <text x="780" y="1596" text-anchor="middle" class="ln">同一块内四拍严格串行（C1→V1→C2→V2），但两条物理车道从不同时空转</text>
+
+  <!-- inter-kernel arrow -->
+  <line x1="780" y1="1644" x2="780" y2="1698" stroke="#546e7a" stroke-width="2.5" marker-end="url(#ar)"/>
+  <text x="800" y="1678" class="edge" font-weight="bold">kernel 间串行（快照 h / v_new 落 GM）</text>
+
+  <!-- ============ Kernel 3: FwdO ============ -->
+  <rect x="60" y="1702" width="1440" height="424" rx="14" fill="#fbfcfd" stroke="#9fb0bd" stroke-width="1.6" stroke-dasharray="7 5"/>
+  <text x="780" y="1734" text-anchor="middle" class="grp">Kernel ③ FwdO ＝ Phase E 输出计算（每块五拍）</text>
+
+  <rect x="330" y="1756" width="900" height="54" rx="12" fill="#cfe3fa" stroke="#12518c" stroke-width="2"/>
+  <text x="780" y="1790" text-anchor="middle" class="l1">AIV · V1 【V】 衰减因子：exp*(g_i − g_j) 准备</text>
+
+  <line x1="780" y1="1810" x2="780" y2="1836" stroke="#546e7a" stroke-width="2" marker-end="url(#ar)"/>
+
+  <rect x="330" y="1840" width="900" height="64" rx="12" fill="#ffe3bd" stroke="#e65100" stroke-width="2"/>
+  <text x="780" y="1866" text-anchor="middle" class="l1">AIC · C1 【C】 双矩阵乘：attn = q · kᵀ（块内相似度，含对角线）＋ q · h_快照（块间项）</text>
+  <text x="780" y="1891" text-anchor="middle" class="ln">一张 L0/L1 stream slot ping-pong 同时喂两个 MMAD</text>
+
+  <line x1="780" y1="1904" x2="780" y2="1930" stroke="#546e7a" stroke-width="2" marker-end="url(#ar)"/>
+
+  <rect x="330" y="1934" width="900" height="54" rx="12" fill="#cfe3fa" stroke="#12518c" stroke-width="2"/>
+  <text x="780" y="1968" text-anchor="middle" class="l1">AIV · V2 【V】 因果掩码 tril ＋ 衰减加权 → A′；O_s′ = exp(g) · q·h</text>
+
+  <line x1="780" y1="1988" x2="780" y2="2014" stroke="#546e7a" stroke-width="2" marker-end="url(#ar)"/>
+
+  <rect x="330" y="2018" width="900" height="54" rx="12" fill="#ffe3bd" stroke="#e65100" stroke-width="2"/>
+  <text x="780" y="2052" text-anchor="middle" class="l1">AIC · C3 【C】 块内项：v_part = A′ · v_new</text>
+
+  <line x1="780" y1="2072" x2="780" y2="2098" stroke="#546e7a" stroke-width="2" marker-end="url(#ar)"/>
+
+  <rect x="330" y="2102" width="900" height="54" rx="12" fill="#cfe3fa" stroke="#12518c" stroke-width="2"/>
+  <text x="780" y="2136" text-anchor="middle" class="l1">AIV · V3 【V】 融合输出：o = scale · (O_s′ ＋ v_part)，写回 GM（FP32 融合 → BF16）</text>
+
+  <line x1="780" y1="2126" x2="780" y2="2150" stroke="#546e7a" stroke-width="2" display="none"/>
+  <line x1="1234" y1="2129" x2="1234" y2="2129" stroke="none"/>
+
+  <!-- output -->
+  <line x1="780" y1="2126" x2="780" y2="2156" stroke="#546e7a" stroke-width="2.5" marker-end="url(#ar)" transform="translate(0,6)"/>
+  <rect x="430" y="2168" width="700" height="54" rx="12" fill="#ddebfa" stroke="#1565c0" stroke-width="2.5"/>
+  <text x="780" y="2202" text-anchor="middle" class="l1">输出：o（bf16）· final_state（写回状态池，decode 阶段接续）</text>
+
+  <rect x="140" y="2242" width="1280" height="76" rx="12" fill="#fffbe6" stroke="#d4a017" stroke-width="1.8"/>
+  <text x="780" y="2268" text-anchor="middle" class="ln" font-weight="bold">流水里三张 64×64 的表各干各的，不要混：</text>
+  <text x="780" y="2294" text-anchor="middle" class="ln">L 债务表（写侧 · k·kᵀ 现算 · 严格无对角线）｜ (I+L)⁻¹ 结算矩阵（天真写入 → 净写入）｜ attn 注意力表（读侧 · q·kᵀ · 含对角线）</text>
+  <text x="780" y="2314" text-anchor="middle" class="nb">attn 不能复用 B 的表：左操作数从 k 换成了 q（检索面 ≠ 供给面），且 B 的表已被求逆变形</text>
+</svg>
