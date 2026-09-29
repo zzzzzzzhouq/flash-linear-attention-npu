@@ -21,24 +21,24 @@
   </defs>
   <rect width="1800" height="1460" fill="#ffffff"/>
 
-  <text x="900" y="48" text-anchor="middle" class="title">GDN 前向硬件流水图：AIC（Cube）与 AIV（Vector）双车道时间轴</text>
-  <text x="900" y="80" text-anchor="middle" class="sub">串行 = 旗标握手等待｜并行 = 车道间同时开算 / 包间·块间重叠｜块宽为示意，非严格比例</text>
+  <text x="900" y="48" text-anchor="middle" class="title">GDN 前向硬件流水图：AIC（Cube）与 AIV（Vector）双流水时间轴</text>
+  <text x="900" y="80" text-anchor="middle" class="sub">串行 = flag 握手等待｜并行 = 流水间同时开算 / 包间·块间重叠｜块宽为示意，非严格比例</text>
 
   <!-- legend -->
   <rect x="70" y="100" width="52" height="28" rx="7" fill="#ffe3bd" stroke="#e65100" stroke-width="2"/>
-  <text x="132" y="120" class="ann" font-weight="bold">C：Cube 拍（AIC）</text>
+  <text x="132" y="120" class="ann" font-weight="bold">C：Cube（AIC）</text>
   <rect x="330" y="100" width="52" height="28" rx="7" fill="#cfe3fa" stroke="#12518c" stroke-width="2"/>
-  <text x="392" y="120" class="ann" font-weight="bold">V：Vector 拍（AIV）</text>
+  <text x="392" y="120" class="ann" font-weight="bold">V：Vector（AIV）</text>
   <rect x="590" y="100" width="52" height="28" rx="7" fill="#fff3e0" stroke="#e65100" stroke-width="1.8" stroke-dasharray="6 4"/>
   <text x="652" y="120" class="ann" font-weight="bold">虚线框：预取 / 下一包·下一块（重叠推进）</text>
   <rect x="1030" y="100" width="52" height="28" rx="7" fill="#f2f4f6" stroke="#8d9aa5" stroke-width="1.6"/>
-  <text x="1092" y="120" class="ann" font-weight="bold">灰：空闲等待旗标</text>
+  <text x="1092" y="120" class="ann" font-weight="bold">灰：空闲等待flag</text>
   <line x1="1280" y1="114" x2="1330" y2="114" stroke="#c62828" stroke-width="2.2" stroke-dasharray="8 5" marker-end="url(#arR)"/>
-  <text x="1340" y="120" class="ann" font-weight="bold">跨核旗标依赖（串行点）</text>
+  <text x="1340" y="120" class="ann" font-weight="bold">跨核 flag依赖（串行点）</text>
 
   <!-- ================= Section 1: Prepare ================= -->
   <rect x="50" y="160" width="1700" height="310" rx="14" fill="#fbfcfd" stroke="#9fb0bd" stroke-width="1.6" stroke-dasharray="7 5"/>
-  <text x="900" y="196" text-anchor="middle" class="grp">① Prepare（MIX AIC:AIV = 1:2）—— C/V 交错握手；S6 与 S4/S5 两车道并行；下一包的 S1′ 压在上包的 S5/S7 之上</text>
+  <text x="900" y="196" text-anchor="middle" class="grp">① Prepare（MIX AIC:AIV = 1:2）—— C/V 交错握手；S6 与 S4/S5 两条流水并行；下一包的 S1′ 压在上包的 S5/S7 之上</text>
 
   <text x="95" y="268" class="lane">AIC</text>
   <text x="80" y="288" class="lane">(Cube)</text>
@@ -47,7 +47,7 @@
 
   <!-- AIC lane blocks -->
   <rect x="140" y="230" width="140" height="65" rx="8" fill="#f2f4f6" stroke="#8d9aa5" stroke-width="1.5"/>
-  <text x="210" y="268" text-anchor="middle" class="blks">空闲·等旗标</text>
+  <text x="210" y="268" text-anchor="middle" class="blks">空闲·等 flag</text>
   <rect x="280" y="230" width="140" height="65" rx="8" fill="#ffe3bd" stroke="#e65100" stroke-width="2"/>
   <text x="350" y="258" text-anchor="middle" class="blk">S2 KKT【C】</text>
   <text x="350" y="280" text-anchor="middle" class="blks">k̂·k̂ᵀ</text>
@@ -100,11 +100,11 @@
   <text x="452" y="322" class="dep">−L 就绪</text>
 
   <line x1="140" y1="440" x2="1690" y2="440" stroke="#b0bec5" stroke-width="1.5" marker-end="url(#ar)"/>
-  <text x="1690" y="462" text-anchor="end" class="tick">时间 →　同链 C→V→C→V 串行握手；两条车道物理上并行；包间预取重叠</text>
+  <text x="1690" y="462" text-anchor="end" class="tick">时间 →　同链 C→V→C→V 串行握手；两条流水物理上并行；包间预取重叠</text>
 
   <!-- ================= Section 2: FwdH ================= -->
   <rect x="50" y="490" width="1700" height="380" rx="14" fill="#fbfcfd" stroke="#9fb0bd" stroke-width="1.6" stroke-dasharray="7 5"/>
-  <text x="900" y="526" text-anchor="middle" class="grp">② FwdH ＝ Phase D 四拍编舞 —— 块间串行（H 就绪旗标）；块内 C/V 交替 ＋ head 双缓冲 ＋ 预取重叠</text>
+  <text x="900" y="526" text-anchor="middle" class="grp">② FwdH —— 块间串行（H 就绪 flag）；块内 C/V 交替 ＋ head 双缓冲 ＋ 预取重叠</text>
 
   <text x="95" y="623" class="lane">AIC</text>
   <text x="80" y="643" class="lane">(Cube)</text>
@@ -183,11 +183,11 @@
   <path d="M 575 765 L 575 820 L 825 820 L 825 652" fill="none" stroke="#c62828" stroke-width="2.2" stroke-dasharray="8 5" marker-end="url(#arR)"/>
   <text x="845" y="826" class="dep">H_READY：块 c 的 V2 状态就绪后，块 c+1 的 C1′ 才能开算 —— 块间串行点</text>
 
-  <text x="140" y="858" class="ann" fill="#546e7a">同块内 C1→V1→C2→V2 严格串行（跨核旗标接力）｜head 0/1 双 local slot 双缓冲｜AIC 预取下一块与当前计算重叠｜不同序列/头 → 28 组核全并行</text>
+  <text x="140" y="858" class="ann" fill="#546e7a">同块内 C1→V1→C2→V2 严格串行（跨核 flag接力）｜head 0/1 双 local slot 双缓冲｜AIC 预取下一块与当前计算重叠｜不同序列/头 → 28 组核全并行</text>
 
   <!-- ================= Section 3: FwdO ================= -->
   <rect x="50" y="900" width="1700" height="330" rx="14" fill="#fbfcfd" stroke="#9fb0bd" stroke-width="1.6" stroke-dasharray="7 5"/>
-  <text x="900" y="936" text-anchor="middle" class="grp">③ FwdO ＝ Phase E 五拍编舞 —— AIV 车道 S1→S3→S5 依次，AIC 车道 C1/C3 插空；A′/V ping-pong，AIC 预取领先一个 V head</text>
+  <text x="900" y="936" text-anchor="middle" class="grp">③ FwdO —— AIV 流水 S1→S3→S5 依次，AIC 流水 C1/C3 插空；A′/V ping-pong，AIC 预取领先一个 V head</text>
 
   <text x="95" y="1033" class="lane">AIC</text>
   <text x="80" y="1053" class="lane">(Cube)</text>
@@ -249,7 +249,7 @@
   <line x1="455" y1="1062" x2="455" y2="1108" stroke="#c62828" stroke-width="2" stroke-dasharray="7 4" marker-end="url(#arR)"/>
   <line x1="660" y1="1110" x2="660" y2="1062" stroke="#c62828" stroke-width="2" stroke-dasharray="7 4" marker-end="url(#arR)"/>
   <line x1="740" y1="1062" x2="740" y2="1108" stroke="#c62828" stroke-width="2" stroke-dasharray="7 4" marker-end="url(#arR)"/>
-  <text x="880" y="1092" class="dep">每次 C↔V 接力都过 GM workspace ＋ 旗标（A5：C 的结果 Fixpipe 直写 AIV UB，省一次 GM 往返）</text>
+  <text x="880" y="1092" class="dep">每次 C↔V 接力都过 GM workspace ＋ flag（A5：C 的结果 Fixpipe 直写 AIV UB，省一次 GM 往返）</text>
 
   <text x="140" y="1205" class="ann" fill="#546e7a">o = 块间项（查 FwdH 快照 h，带衰减）＋ 块内项（对净写入 u 的因果注意力）——矩阵乘全在 AIC，掩码/指数/融合全在 AIV</text>
 
@@ -257,9 +257,9 @@
   <rect x="50" y="1250" width="1700" height="170" rx="14" fill="#fffbe6" stroke="#d4a017" stroke-width="1.8"/>
   <text x="900" y="1284" text-anchor="middle" class="grp">串行 / 并行一览</text>
   <text x="90" y="1316" class="ann" font-weight="bold">串行：</text>
-  <text x="160" y="1316" class="ann">① kernel 间（Prepare → FwdH → FwdO，GM 接力）　② 同一序列的 chunk 间（FwdH 状态递推，H 就绪旗标）</text>
-  <text x="160" y="1342" class="ann">③ 同一条数据链上的 C→V→C→V 交替（数据依赖，跨核旗标握手，一方必须等另一方置位）</text>
+  <text x="160" y="1316" class="ann">① kernel 间（Prepare → FwdH → FwdO，GM 接力）　② 同一序列的 chunk 间（FwdH 状态递推，H 就绪 flag）</text>
+  <text x="160" y="1342" class="ann">③ 同一条数据链上的 C→V→C→V 交替（数据依赖，跨核 flag 握手，一方必须等另一方置位）</text>
   <text x="90" y="1374" class="ann" font-weight="bold">并行：</text>
-  <text x="160" y="1374" class="ann">① 不同序列 / 不同 value head → 28 组 AIC+AIV 核全并行　② 同一 kernel 内 AIC / AIV 两条物理车道</text>
+  <text x="160" y="1374" class="ann">① 不同序列 / 不同 value head → 28 组 AIC+AIV 核全并行　② 同一 kernel 内 AIC / AIV 两条硬件流水</text>
   <text x="160" y="1400" class="ann">③ 预取与计算重叠（W/K lookahead、A′/V ping-pong、下一包 S1′）　④ AIV0/AIV1 双 head 双缓冲</text>
 </svg>
