@@ -38,7 +38,7 @@
 
   <!-- ================= Section 1: Prepare ================= -->
   <rect x="50" y="160" width="1700" height="310" rx="14" fill="#fbfcfd" stroke="#9fb0bd" stroke-width="1.6" stroke-dasharray="7 5"/>
-  <text x="900" y="196" text-anchor="middle" class="grp">① Prepare（MIX AIC:AIV = 1:2）—— C/V 交错握手；S6 与 S4/S5 两条流水并行；下一包的 S1′ 压在上包的 S5/S7 之上</text>
+  <text x="900" y="196" text-anchor="middle" class="grp">① Prepare（MIX AIC:AIV = 1:2）—— C/V 交错握手；S6 与 S4/S5 两条流水并行；下一包的 S1′ 与上包的 S5/S7 并行重叠</text>
 
   <text x="95" y="268" class="lane">AIC</text>
   <text x="80" y="288" class="lane">(Cube)</text>
@@ -84,11 +84,11 @@
   <text x="700" y="373" text-anchor="middle" class="blk">S6【V】右端组装　∥ 与 S4/S5 并行</text>
   <text x="700" y="395" text-anchor="middle" class="blks">vb=v·β　kbg=k̂·β·exp*(g′)</text>
   <rect x="830" y="345" width="170" height="65" rx="8" fill="#cfe3fa" stroke="#12518c" stroke-width="2"/>
-  <text x="915" y="373" text-anchor="middle" class="blk">排水【V】</text>
+  <text x="915" y="373" text-anchor="middle" class="blk">回写【V】</text>
   <text x="915" y="395" text-anchor="middle" class="blks">w/u → GM</text>
   <rect x="1090" y="345" width="190" height="65" rx="8" fill="#fff3e0" stroke="#12518c" stroke-width="1.8" stroke-dasharray="6 4"/>
   <text x="1185" y="373" text-anchor="middle" class="blk">S1′【V】下一包</text>
-  <text x="1185" y="395" text-anchor="middle" class="blks">∥ 压在上包 S5/S7 之上</text>
+  <text x="1185" y="395" text-anchor="middle" class="blks">∥ 与上包 S5/S7 并行重叠</text>
   <rect x="1280" y="345" width="130" height="65" rx="8" fill="#fff3e0" stroke="#12518c" stroke-width="1.8" stroke-dasharray="6 4"/>
   <text x="1345" y="383" text-anchor="middle" class="blk">S3′</text>
   <text x="1420" y="383" class="blks" fill="#90a4ae">……</text>

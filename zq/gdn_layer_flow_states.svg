@@ -73,7 +73,7 @@
   <text x="490" y="838" text-anchor="middle" class="l1">prefill · chunk_gated_delta_rule_fwd（A5：Prepare → FwdH → FwdO）</text>
   <text x="490" y="863" text-anchor="middle" class="ln">Prepare：L2Norm · cumsum · KKT · (I+L)⁻¹ · WY 重构（净写入 u / 系数 w）</text>
   <text x="490" y="888" text-anchor="middle" class="ln">FwdH：块间状态递推 —— 首块读 initial_state【R·S】</text>
-  <text x="490" y="913" text-anchor="middle" class="ln">　　　末块写 final_state【W·S】；中间几十块 S 驻 AIV UB，零进出池</text>
+  <text x="490" y="913" text-anchor="middle" class="ln">　　　末块写 final_state【W·S】；中间各块 S 留在 AIV UB，不读写状态池</text>
   <text x="490" y="938" text-anchor="middle" class="ln">FwdO：o = 块间项（查快照 h）＋ 块内项（对净写入 u 的因果注意力）</text>
   <text x="490" y="963" text-anchor="middle" class="ln">（变长：cu_seqlens / chunk_indices 描述多条序列与分块）</text>
 
@@ -113,7 +113,7 @@
   <text x="1260" y="704" text-anchor="middle" class="ln">[num_slots, Hv, K, V]　典型 128×128 记忆矩阵</text>
   <text x="1260" y="730" text-anchor="middle" class="ln">角色：递推记忆（delta rule 的账本）—— 只服务 ④</text>
   <text x="1260" y="758" text-anchor="middle" class="ln">· prefill：首块【R·initial_state】＋ 末块【W·final_state】</text>
-  <text x="1260" y="784" text-anchor="middle" class="ln">　（一次性进出池；中间块 S 驻 AIV UB ping-pong，零搬运）</text>
+  <text x="1260" y="784" text-anchor="middle" class="ln">　（只在首末块读写状态池；中间块 S 留在 AIV UB，零搬运）</text>
   <text x="1260" y="810" text-anchor="middle" class="ln">· decode：每步【R】→ 衰减改写 →【W】原地递推</text>
   <text x="1260" y="836" text-anchor="middle" class="ln">· 投机：num_accepted_tokens 回卷</text>
 
