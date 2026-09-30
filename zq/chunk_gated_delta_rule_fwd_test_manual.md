@@ -289,22 +289,49 @@ bash tests/atk/run_test_cpu.sh -op=chunk_gated_delta_rule_fwd -npu_device_id=0 -
 - `aic_mac_ratio`：cube 流水利用指标
 - `perf_fluctuation_result`：波动检查，采样轮数少时容易不过，正式结论建议多轮重跑取稳定值
 
-### 本次实测结果（2026-09-29，run 2026-09-29-10-08-55）
+### ⚠️ 设备状态陷阱（先读这个再看数字）
+
+同代码同输入下，性能测量出现过整段"系统性偏慢"的窗口（慢 1.5~1.9 倍且波动大）。**代码因素已排除**：wheel 安装时间为 9/29 09:25，早于包括慢轮在内的所有测量轮——全部轮次跑的是同一个二进制。复核方法：`ls -ldt /usr/local/python3.11.10/lib/python3.11/site-packages/flash_linear_attention_npu_a5-*.dist-info`，dist-info 目录时间即安装时间。
+
+五轮数据（case 0 推理 b1_t11274_gva2 / case 1 训练 b2_t8192_mha）：
+
+| 时间 | 设备状态 | case 0 | case 1 | case 0 std |
+|---|---|---|---|---|
+| 9/29 09:46 | 独占 | 2879 µs | （中断未跑） | 193 µs |
+| 9/29 10:08 | 独占 | 3193 µs | 4045 µs | 218 µs |
+| 9/29 17:41 | 有并发负载 | 1701 µs | 2872 µs | 2.1 µs |
+| 9/30 09:03 | 独占 | **1703.2 µs** | **2703.8 µs** | 2.0 µs |
+| 9/30 09:04 | 独占 | **1706.2 µs** | **2705.2 µs** | 2.4 µs |
+
+解读：
+- **稳定真值：case 0 ≈ 1704 µs、case 1 ≈ 2704 µs**——9/30 两轮背靠背独占复现，差异 <0.2%、std 个位数 µs
+- 慢窗口只出现在 9/29 上午，且 std 高达 218 µs（6.8%）、伴随波动检查失败——设备当时处于异常状态（空闲降频未被短测试唤醒，或共享服务器上其他用户的隐蔽负载），与代码无关，具体原因已无法回溯
+- 9/29 17:41 的 case 1（2872 µs，std 93）比独占真值慢 6%——真实并发共享的开销；同轮 case 0 未受影响
+
+**正式测速的规矩**：
+- 单轮数字不作数，至少两轮背靠背复现；**std 是可信度指标**——个位数 µs 才是标杆状态，上百 µs 说明环境有干扰
+- 数字与历史值差 >10% 或 std 异常时，先查环境再报数：`npu-smi info` 看 AI Core 频率、确认有没有别人的进程
+- 结论必须记录设备状态与复现轮数；对比优化前后须在同一状态下测
+
+### 本次实测结果（正式值：9/30 两轮背靠背独占复现）
 
 | 指标 | 推理 `a5_inference_b1_t11274_gva2`<br>(B=1,Hk=16,Hv=32,T=11274,varlen,chunk64) | 训练 `a5_training_b2_t8192_mha`<br>(B=2,Hk=Hv=32,T=8192,dense,chunk64) |
 |---|---|---|
-| **device_perf（e2e）** | **3193.48 µs** | **4045.45 µs** |
-| AI Core 耗时 | 3088.45 µs（占比 96.7%） | 3935.44 µs（占比 97.3%） |
-| aic_mac_ratio | 1.339 | 1.270 |
-| 折算吞吐 | ≈353 万 token/s | ≈405 万 token/s |
+| **device_perf（e2e）** | **1703.2 / 1706.2 µs**（两轮） | **2703.8 / 2705.2 µs**（两轮） |
+| AI Core 耗时 | 1658.2 µs（占比 97.4%） | 2644.2 µs（占比 97.8%） |
+| aic_mac_ratio | 1.327 | 1.237 |
+| 折算吞吐 | ≈661 万 token/s | ≈606 万 token/s |
 | 显存峰值（reserved） | 1255 MB | 1885 MB |
-| 标准差 | 218 µs（~7%） | 277 µs（~7%） |
+| 标准差 | 2.0~2.4 µs（0.1%） | 2.9~3.1 µs（0.1%） |
 
-报告文件：`atk_output/perf/atk_output/atk_chunk_gated_delta_rule_fwd_perf_2026-09-29-10-08-55/report/atk_chunk_gated_delta_rule_fwd_perf_reports_2026-09-29-10-08-55.xlsx`（`Total Task: 2, success 2, failed 0`）
+报告文件（9/30 两轮，均为 `Total Task: 2, success 2, failed 0`）：
+- `atk_output/perf/atk_output/atk_chunk_gated_delta_rule_fwd_perf_2026-09-30-09-03-15-277182/report/atk_chunk_gated_delta_rule_fwd_perf_reports_2026-09-30-09-03-15.xlsx`
+- `atk_output/perf/atk_output/atk_chunk_gated_delta_rule_fwd_perf_2026-09-30-09-04-02-874386/report/atk_chunk_gated_delta_rule_fwd_perf_reports_2026-09-30-09-04-02.xlsx`
+
+历史轮归档：9/29 17:41（有并发，case 0 与正式值一致，case 1 因共享 +6%）、9/29 上午两轮（设备异常慢窗口，仅作对照保留，不作结论依据）。
 
 解读要点：
-- AI Core 占比 97%：host 侧调度无瓶颈
-- 轮间波动值得注意：case 0 在两次不同 run 中分别为 2879 µs 与 3193 µs（~10%），单轮结论要谨慎
+- AI Core 占比 97%+：host 侧调度无瓶颈，两轮一致
 - TFlops/MFU 显示 0 是因为 executor 未定义 `cal_cube_computation()`，非真实值
 
 ---
@@ -362,7 +389,8 @@ python3 -c "import json; d=json.load(open('tests/atk/chunk_gated_delta_rule_fwd/
 4. **`KeyError: 'cv_fused_double_benchmark'`** → 补丁三（§3.3）；期间踩坑：shim 注册表来源必须用 `atk.tasks.post_process`（两个 Registry 实例问题）
 5. **性能 case `output[0] 包含 NaN/Inf`** → 补丁二（§3.2），对照实验定位 g 正值
 6. **离线比对 case 3/5 `bm_err≈1.0`** → 曾误用 bsnd 修 varlen（问题 5），错误精确覆盖第二序列（case 5 token 127~317 全中、4 头全中），回退 tnd 后恢复
-7. 最终：精度 OVERALL PASS + 性能正式报告，全部结论有落盘数据支撑
+7. **性能五轮不一致（9/29 上午 2879/3193 µs vs 其余三轮 ~1704 µs）** → 排除代码因素（wheel 安装于 9/29 09:25，早于全部轮次，同一二进制）；慢窗口仅出现在 9/29 上午且 std 高达 218 µs，属设备异常状态（降频或共享服务器隐蔽负载）；9/30 两轮背靠背独占复现出稳定快值（1703/1706、2704/2705，std 2~3 µs）定为正式结论，详见 §5 设备状态陷阱
+8. 最终：精度 OVERALL PASS + 性能正式报告（满频/独占两轮对照），全部结论有落盘数据支撑
 
 ---
 
