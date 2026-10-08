@@ -159,6 +159,7 @@ _GET_WORKSPACE_ARGTYPES = {
         ctypes.c_void_p,  # initialStateOptional
         ctypes.c_void_p,  # cuSeqlensOptional
         ctypes.c_void_p,  # chunkIndicesOptional
+        ctypes.c_void_p,  # timerOptional (timer 分支: INT64 计时缓冲)
         ctypes.c_char_p,  # layout
         ctypes.c_double,  # scale
         ctypes.c_int64,  # chunkSize
@@ -2821,8 +2822,15 @@ def npu_chunk_gated_delta_rule_fwd(
     a_log=None,
     dt_bias=None,
     layout="BNSD",
+    timer=None,
 ):
-    """调用融合 GDN 前向；训练默认导出 gCumsum/A，推理显式设为 False。"""
+    """调用融合 GDN 前向；训练默认导出 gCumsum/A，推理显式设为 False。
+
+    timer 分支新增：``timer`` 为可选的 int64 NPU 张量（tools/timer 的
+    TOTAL_BUFFER_SIZE 长度）。仅 A5 Phase6 融合 kernel 路径生效；传入时
+    kernel 各阶段把 start/end cycle 写入该缓冲，供 parse_timer_csv.py
+    与 trace_parser.py 离线解析。None 时保持原行为。
+    """
     import torch
 
     q_shape = _shape(q)
@@ -2949,6 +2957,7 @@ def npu_chunk_gated_delta_rule_fwd(
             ctx.tensor(initial_state, "initial_state"),
             ctx.int_array(cu_seqlens),
             ctx.int_array(chunk_indices),
+            ctx.tensor(timer, "timer"),
             ctypes.cast(layout_buffer, ctypes.c_char_p),
             ctypes.c_double(scale),
             ctypes.c_int64(int(chunk_size)),

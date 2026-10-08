@@ -76,6 +76,8 @@ using _65536 = tla::Int<65536>;
 
 #include "kernel_operator.h"
 #include "../../chunk_fwd_o_struct.h"
+#include "../../../../../../timer/AscendTimerV2.hpp"
+#include "../../../../../../timer/AscendTimerV2_device.hpp"
 using namespace Catlass;
 using namespace tla;
 
@@ -236,6 +238,11 @@ public:
 
     Arch::Resource<ArchTag> resource;
 
+    // 设备侧计时器（timer 分支）：由 RunFwdO 注入；未注入时打点经判空跳过。
+    AscendTimerDevice *timerPtr_ = nullptr;
+
+    __aicore__ inline void SetTimerPtr(AscendTimerDevice *timerPtr) { timerPtr_ = timerPtr; }
+
     __aicore__ inline uint64_t PipelineVNewBytes() const
     {
         const uint64_t physicalBatch = hoPipelineContext.physicalShapeBatch != 0
@@ -371,12 +378,14 @@ public:
             bool needRun = false;
 
 #if defined(__CCE_AICORE__) && __CCE_AICORE__ == 310
+            uint32_t aicTimerIter = 0; // 调度循环圈号
             while (cubeBlockScheduler.isRunning) {
                 cubeBlockScheduler.InitTask();
 
                 // Phase 1a: launch Cube1, then release only the L1 producer
                 // events. Its MMAD/FIX pipeline remains in flight.
                 if (cubeBlockScheduler.isRunning && coreIdx < coreNum) {
+                    TIMER_BLOCK(GDN_TIMER_CALL(timerPtr_, timerPtr_->TikNoBarrier(GdnTimer::FWO_AIC_QK, aicTimerIter)));
                     uint32_t streamId = cubeBlockScheduler.GetCurStageId();
                     GDNFwdOOffsets &cube1Offsets = cubeBlockScheduler.GetCube1Offsets();
                     auto attenLayout = tla::MakeLayout<ElementAtten, LayoutAtten>(
@@ -403,6 +412,7 @@ public:
                     blockMmadQK.preSetFlags();
                     blockMmadQK(tensorBlockQ, tensorBlockK, tensorBlockAttn, cube1Shape);
                     blockMmadQK.waitL1Drained();
+                    TIMER_BLOCK(GDN_TIMER_CALL(timerPtr_, timerPtr_->TokNoBarrier<Overwrite>(GdnTimer::FWO_AIC_QK, aicTimerIter)));
                     (void)streamId;
                 }
 
@@ -459,6 +469,7 @@ public:
 
                     // H/V workspaces are ping-pong slots. Delay this wait until
                     // the first operation that can overwrite the previous slot.
+                    TIMER_BLOCK(GDN_TIMER_CALL(timerPtr_, timerPtr_->TikNoBarrier(GdnTimer::FWO_AIC_QH, aicTimerIter)));
                     Arch::CrossCoreWaitFlag(cubeBlockScheduler.vec2Done[streamId]);
 
                     auto tensorHWork = tla::MakeTensor(
@@ -533,6 +544,7 @@ public:
                     } else {
                         blockMmadQH256.finalWaitFlags();
                     }
+                    TIMER_BLOCK(GDN_TIMER_CALL(timerPtr_, timerPtr_->TokNoBarrier<Overwrite>(GdnTimer::FWO_AIC_QH, aicTimerIter)));
 
                     auto tensorVWork = tla::MakeTensor(
                         gmVWorkspace[cube3Offsets.hvWorkOffset], ointerLayout,
@@ -540,6 +552,7 @@ public:
                     auto tensorBlockVWork = GetTile(
                         tensorVWork, tla::MakeCoord(0, 0),
                         tla::MakeShape(cube3Shape.m(), cube3Shape.n()));
+                    TIMER_BLOCK(GDN_TIMER_CALL(timerPtr_, timerPtr_->TikNoBarrier(GdnTimer::FWO_AIC_ATTENV, aicTimerIter)));
                     if (cube3Offsets.vBlockDim <= 128) {
                         blockMmadAttenVNEW128.preSetL0Flags();
                         blockMmadAttenVNEW128.executeCompute(
@@ -553,9 +566,14 @@ public:
                     }
                     Arch::CrossCoreSetFlag<0x2, PIPE_FIX>(
                         cubeBlockScheduler.cube3Done[streamId]);
+                    TIMER_BLOCK(GDN_TIMER_CALL(timerPtr_, timerPtr_->TokNoBarrier<Overwrite>(GdnTimer::FWO_AIC_ATTENV, aicTimerIter)));
                 }
                 needRun = true;
+                ++aicTimerIter;
             }
+            TIMER_BLOCK(GDN_TIMER_CALL(timerPtr_, timerPtr_->setDynamicActualIter(GdnTimer::FWO_AIC_QK, aicTimerIter)));
+            TIMER_BLOCK(GDN_TIMER_CALL(timerPtr_, timerPtr_->setDynamicActualIter(GdnTimer::FWO_AIC_QH, aicTimerIter)));
+            TIMER_BLOCK(GDN_TIMER_CALL(timerPtr_, timerPtr_->setDynamicActualIter(GdnTimer::FWO_AIC_ATTENV, aicTimerIter)));
             Arch::CrossCoreWaitFlag(cubeBlockScheduler.vec2Done[0]);
             Arch::CrossCoreWaitFlag(cubeBlockScheduler.vec2Done[1]);
 #else
@@ -668,12 +686,14 @@ public:
 
             bool needRun = false;
             uint32_t pingpongFlag = 0;
+            uint32_t vecTimerIter = 0; // 调度循环圈号
 
             while (vecBlockScheduler.isRunning) {
                 vecBlockScheduler.InitTask();
 
                 if (vecBlockScheduler.isRunning && coreIdx < coreNum * subBlockNum) {
                     uint32_t streamId = vecBlockScheduler.GetCurStageId();
+                    TIMER_BLOCK(GDN_TIMER_CALL(timerPtr_, timerPtr_->TikNoBarrier(GdnTimer::FWO_AIV_QKMASK, vecTimerIter)));
 #if !defined(__CCE_AICORE__) || __CCE_AICORE__ != 310
                     Arch::CrossCoreWaitFlag(vecBlockScheduler.cube1Done[streamId]);
 #endif
@@ -707,12 +727,14 @@ public:
                     // zero-row tail subblock. FFTS aggregates the pair for the
                     // AIC's single wait when the A5 experiment is enabled.
                     Arch::CrossCoreSetFlag<0x2, PIPE_MTE3>(vecBlockScheduler.vec1Done[streamId]);
+                    TIMER_BLOCK(GDN_TIMER_CALL(timerPtr_, timerPtr_->TokNoBarrier<Overwrite>(GdnTimer::FWO_AIV_QKMASK, vecTimerIter)));
                 }
 
                 // AscendC::PipeBarrier<PIPE_ALL>();
 
                 if (needRun && coreIdx < coreNum * subBlockNum) {
                     uint32_t streamId = vecBlockScheduler.GetPrevStageId();
+                    TIMER_BLOCK(GDN_TIMER_CALL(timerPtr_, timerPtr_->TikNoBarrier(GdnTimer::FWO_AIV_OUTPUT, vecTimerIter)));
 #if !defined(__CCE_AICORE__) || __CCE_AICORE__ != 310
                     Arch::CrossCoreWaitFlag(vecBlockScheduler.cube3Done[streamId]);
 #endif
@@ -755,9 +777,13 @@ public:
                         Arch::CrossCoreSetFlag<0x2, PIPE_MTE3>(vecBlockScheduler.vec2Done[streamId]);
                     }
 #endif
+                    TIMER_BLOCK(GDN_TIMER_CALL(timerPtr_, timerPtr_->TokNoBarrier<Overwrite>(GdnTimer::FWO_AIV_OUTPUT, vecTimerIter)));
                 }
                 needRun = true;
+                ++vecTimerIter;
             }
+            TIMER_BLOCK(GDN_TIMER_CALL(timerPtr_, timerPtr_->setDynamicActualIter(GdnTimer::FWO_AIV_QKMASK, vecTimerIter)));
+            TIMER_BLOCK(GDN_TIMER_CALL(timerPtr_, timerPtr_->setDynamicActualIter(GdnTimer::FWO_AIV_OUTPUT, vecTimerIter)));
         }
     }
 

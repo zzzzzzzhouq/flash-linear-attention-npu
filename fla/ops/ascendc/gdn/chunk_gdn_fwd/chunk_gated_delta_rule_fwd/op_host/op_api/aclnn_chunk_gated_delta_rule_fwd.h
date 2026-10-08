@@ -24,6 +24,7 @@ ACLNN_API aclnnStatus aclnnChunkGatedDeltaRuleFwdGetWorkspaceSize(
     const aclTensor *initialStateOptional,
     const aclIntArray *cuSeqlensOptional,
     const aclIntArray *chunkIndicesOptional,
+    const aclTensor *timerOptional,
     const char *layout,
     double scale,
     int64_t chunkSize,

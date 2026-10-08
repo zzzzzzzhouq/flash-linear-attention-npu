@@ -160,6 +160,7 @@ run_npu_chunk_gated_delta_rule_fwd(
       /*a_log=*/optional_tensor(std::nullopt),
       /*dt_bias=*/optional_tensor(std::nullopt),
       optional_tensor(initial_state), int_array(cu), int_array(ci),
+      /*timer=*/optional_tensor(std::nullopt),
       cstr(kGdnFwdLayoutNames, layout), scalar(scale), scalar(chunk_size),
       scalar(use_exp2), scalar(use_qk_l2norm_in_kernel),
       scalar(allow_neg_eigval), scalar(state_v_first),

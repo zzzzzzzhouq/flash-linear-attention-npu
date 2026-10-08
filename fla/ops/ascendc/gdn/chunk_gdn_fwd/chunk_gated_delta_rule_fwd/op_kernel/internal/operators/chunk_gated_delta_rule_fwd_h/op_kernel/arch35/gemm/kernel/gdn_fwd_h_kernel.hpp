@@ -32,6 +32,8 @@
 #include "tla/tensor.hpp"
 #include "tla/layout.hpp"
 #include "tla/tensor.hpp"
+#include "../../../../../../../timer/AscendTimerV2.hpp"
+#include "../../../../../../../timer/AscendTimerV2_device.hpp"
 
 using _0 = tla::Int<0>;
 using _1 = tla::Int<1>;
@@ -258,6 +260,12 @@ public:
 
     Arch::Resource<ArchTag> resource;
     GDN::HoPipelineContext hoPipelineContext{};
+
+    // 设备侧计时器（timer 分支）：由 RunFwdH 注入；未注入（独立调用路径或
+    // 未传 timer 张量）时所有 TIMER_BLOCK 打点经 GDN_TIMER_CALL 判空跳过。
+    AscendTimerDevice *timerPtr_ = nullptr;
+
+    __aicore__ inline void SetTimerPtr(AscendTimerDevice *timerPtr) { timerPtr_ = timerPtr; }
 
 
     __aicore__ inline uint64_t PipelineVNewBytes() const
@@ -674,9 +682,11 @@ public:
 
             AscendC::SyncAll<false>();
             uint32_t currStage = 0; // 0: C1, 1: C2
+            uint32_t timerTaskIter = 0; // 本核已完成的调度任务号（C1+C2 两圈记同一 iter）
             while (cubeBlockScheduler.isRunning) {
                 if (currStage == 0) {
                     /* C1: v_work = w @ h[i] */
+                    TIMER_BLOCK(GDN_TIMER_CALL(timerPtr_, timerPtr_->TikNoBarrier(GdnTimer::FWH_AIC_C1, timerTaskIter)));
                     cubeBlockScheduler.InitTasks();
                     if (useDirectFp32Ub) {
                         BlockMmadWHDirectUb blockMmadWHDirectUb(
@@ -689,7 +699,9 @@ public:
                             }
 
                             const GDNFwdHOffsets& cube1Offsets = cubeBlockScheduler.GetCurTaskOffsets(stream);
+                            TIMER_BLOCK(GDN_TIMER_CALL(timerPtr_, timerPtr_->TikNoBarrier(GdnTimer::FWH_AIC_C1_WAIT, timerTaskIter)));
                             Arch::CrossCoreWaitFlag(cubeBlockScheduler.vec2Done[streamId]);
+                            TIMER_BLOCK(GDN_TIMER_CALL(timerPtr_, timerPtr_->TokNoBarrier<Overwrite>(GdnTimer::FWH_AIC_C1_WAIT, timerTaskIter)));
                             if (cube1Offsets.blockTokens < 16) {
                                 Arch::CrossCoreSetFlag<0x2, PIPE_MTE2>(
                                     cubeBlockScheduler.cube1Done[streamId]);
@@ -727,7 +739,9 @@ public:
                             }
 
                             const GDNFwdHOffsets& cube1Offsets = cubeBlockScheduler.GetCurTaskOffsets(stream);
+                            TIMER_BLOCK(GDN_TIMER_CALL(timerPtr_, timerPtr_->TikNoBarrier(GdnTimer::FWH_AIC_C1_WAIT, timerTaskIter)));
                             Arch::CrossCoreWaitFlag(cubeBlockScheduler.vec2Done[streamId]);
+                            TIMER_BLOCK(GDN_TIMER_CALL(timerPtr_, timerPtr_->TokNoBarrier<Overwrite>(GdnTimer::FWH_AIC_C1_WAIT, timerTaskIter)));
                             auto vLayout = tla::MakeLayout<ElementVWork, LayoutV>(
                                 cube1Offsets.blockTokens, cube1Offsets.vBlockDim);
                             auto tensorW = tla::MakeTensor(
@@ -779,7 +793,9 @@ public:
                             }
 
                             const GDNFwdHOffsets& cube1Offsets = cubeBlockScheduler.GetCurTaskOffsets(stream);
+                            TIMER_BLOCK(GDN_TIMER_CALL(timerPtr_, timerPtr_->TikNoBarrier(GdnTimer::FWH_AIC_C1_WAIT, timerTaskIter)));
                             Arch::CrossCoreWaitFlag(cubeBlockScheduler.vec2Done[streamId]);
+                            TIMER_BLOCK(GDN_TIMER_CALL(timerPtr_, timerPtr_->TokNoBarrier<Overwrite>(GdnTimer::FWH_AIC_C1_WAIT, timerTaskIter)));
                             if (cube1Offsets.blockTokens < 16) {
                                 Arch::CrossCoreSetFlag<0x2, PIPE_MTE2>(
                                     cubeBlockScheduler.cube1Done[streamId]);
@@ -802,8 +818,10 @@ public:
                         }
                         blockMmadWH.finalWaitFlags();
                     }
+                    TIMER_BLOCK(GDN_TIMER_CALL(timerPtr_, timerPtr_->TokNoBarrier<Overwrite>(GdnTimer::FWH_AIC_C1, timerTaskIter)));
                 } else {
                     /* C2: h[i+1] = k.T @ v_work */
+                    TIMER_BLOCK(GDN_TIMER_CALL(timerPtr_, timerPtr_->TikNoBarrier(GdnTimer::FWH_AIC_C2, timerTaskIter)));
                     if (useDirectFp32Ub) {
                         BlockMmadKVDirectUb blockMmadKVDirectUb(
                             resource, chunkSize * cubeBlockScheduler.vBlockSize * sizeof(ElementV) * PING_PONG_STAGES);
@@ -814,7 +832,9 @@ public:
                                 continue;
                             }
                             const GDNFwdHOffsets& cube2Offsets = cubeBlockScheduler.GetCurTaskOffsets(stream);
+                            TIMER_BLOCK(GDN_TIMER_CALL(timerPtr_, timerPtr_->TikNoBarrier(GdnTimer::FWH_AIC_C2_WAIT, timerTaskIter)));
                             Arch::CrossCoreWaitFlag(cubeBlockScheduler.vec1Done[streamId]);
+                            TIMER_BLOCK(GDN_TIMER_CALL(timerPtr_, timerPtr_->TokNoBarrier<Overwrite>(GdnTimer::FWH_AIC_C2_WAIT, timerTaskIter)));
 
                             if (cubeBlockScheduler.NeedProcessStage2(stream)) {
                                 if (cube2Offsets.blockTokens < 16) {
@@ -858,7 +878,9 @@ public:
                             }
                             const GDNFwdHOffsets& cube2Offsets =
                                 cubeBlockScheduler.GetCurTaskOffsets(stream);
+                            TIMER_BLOCK(GDN_TIMER_CALL(timerPtr_, timerPtr_->TikNoBarrier(GdnTimer::FWH_AIC_C2_WAIT, timerTaskIter)));
                             Arch::CrossCoreWaitFlag(cubeBlockScheduler.vec1Done[streamId]);
+                            TIMER_BLOCK(GDN_TIMER_CALL(timerPtr_, timerPtr_->TokNoBarrier<Overwrite>(GdnTimer::FWH_AIC_C2_WAIT, timerTaskIter)));
 
                             if (cubeBlockScheduler.NeedProcessStage2(stream)) {
                                 int64_t cube2OffsetK = kGated
@@ -918,7 +940,9 @@ public:
                                 continue;
                             }
                             const GDNFwdHOffsets& cube2Offsets = cubeBlockScheduler.GetCurTaskOffsets(stream);
+                            TIMER_BLOCK(GDN_TIMER_CALL(timerPtr_, timerPtr_->TikNoBarrier(GdnTimer::FWH_AIC_C2_WAIT, timerTaskIter)));
                             Arch::CrossCoreWaitFlag(cubeBlockScheduler.vec1Done[streamId]);
+                            TIMER_BLOCK(GDN_TIMER_CALL(timerPtr_, timerPtr_->TokNoBarrier<Overwrite>(GdnTimer::FWH_AIC_C2_WAIT, timerTaskIter)));
 
                             if (cubeBlockScheduler.NeedProcessStage2(stream)) {
                                 if (cube2Offsets.blockTokens < 16) {
@@ -946,8 +970,17 @@ public:
                         }
                         blockMmadKV.finalWaitFlags();
                     }
+                    TIMER_BLOCK(GDN_TIMER_CALL(timerPtr_, timerPtr_->TokNoBarrier<Overwrite>(GdnTimer::FWH_AIC_C2, timerTaskIter)));
                 }
                 currStage ^= 0x01;
+                // C1→C2→C1 翻转回 0 时表示一个调度任务的两段已完成。
+                if (currStage == 0) {
+                    TIMER_BLOCK(GDN_TIMER_CALL(timerPtr_, timerPtr_->setDynamicActualIter(GdnTimer::FWH_AIC_C1, timerTaskIter + 1)));
+                    TIMER_BLOCK(GDN_TIMER_CALL(timerPtr_, timerPtr_->setDynamicActualIter(GdnTimer::FWH_AIC_C1_WAIT, timerTaskIter + 1)));
+                    TIMER_BLOCK(GDN_TIMER_CALL(timerPtr_, timerPtr_->setDynamicActualIter(GdnTimer::FWH_AIC_C2, timerTaskIter + 1)));
+                    TIMER_BLOCK(GDN_TIMER_CALL(timerPtr_, timerPtr_->setDynamicActualIter(GdnTimer::FWH_AIC_C2_WAIT, timerTaskIter + 1)));
+                    ++timerTaskIter;
+                }
             }
             Arch::CrossCoreWaitFlag(cubeBlockScheduler.vec2Done[0]);
             Arch::CrossCoreWaitFlag(cubeBlockScheduler.vec2Done[1]);
@@ -1093,6 +1126,7 @@ public:
             bool event0FromMte3[PING_PONG_STAGES] = {false, false};
             bool event2FromMte3[PING_PONG_STAGES] = {!(storeFinalState && std::is_same<ElementFinalState, float>::value),
                                                       !(storeFinalState && std::is_same<ElementFinalState, float>::value)};
+            uint32_t vecTimerTaskIter = 0; // 本核已完成的调度任务号（V1+V2 两圈记同一 iter）
             while (vecBlockScheduler.isRunning) {
                 if (currStage == 0) {
                     /* V1:
@@ -1112,6 +1146,7 @@ public:
                         AscendC::LocalTensor<ElementV> l1VUpdate = (i == 0) ? l1VUpdatePing : l1VUpdatePong;
                         bool tailVectorPath =
                             vec1Offsets.blockTokens < 16 && !useBoundedMmad;
+                        TIMER_BLOCK(GDN_TIMER_CALL(timerPtr_, timerPtr_->TikNoBarrier(GdnTimer::FWH_AIV_VEC1, vecTimerTaskIter)));
                         if (tailVectorPath) {
                             Arch::CrossCoreWaitFlag(
                                 vecBlockScheduler.cube1Done[streamId]);
@@ -1131,6 +1166,7 @@ public:
                             waitWsFromMte3, (i == 0), tailVectorPath, useDirectForTask,
                             DIRECT_UB_FREE_FLAG_BEGIN, DIRECT_UB_READY_FLAG_BEGIN
                         );
+                        TIMER_BLOCK(GDN_TIMER_CALL(timerPtr_, timerPtr_->TokNoBarrier<Overwrite>(GdnTimer::FWH_AIV_VEC1, vecTimerTaskIter)));
                         if (storeFinalState && std::is_same<ElementFinalState, float>::value) {
                             event0FromMte3[streamId] = false;
                         }
@@ -1144,6 +1180,7 @@ public:
                             continue;
                         }
                         const GDNFwdHOffsets& vec2Offsets = vecBlockScheduler.GetCurTaskOffsets(stream);
+                        TIMER_BLOCK(GDN_TIMER_CALL(timerPtr_, timerPtr_->TikNoBarrier(GdnTimer::FWH_AIV_VEC2, vecTimerTaskIter)));
                         if (vecBlockScheduler.NeedProcessStage2(stream)) {
                             bool tailVectorPath =
                                 vec2Offsets.blockTokens < 16 && !useBoundedMmad;
@@ -1183,9 +1220,16 @@ public:
                         // itself retires the local PIPE_ALL generation.
                         SignalChunkReady(vec2Offsets);
                         Arch::CrossCoreSetFlag<0x2, PIPE_MTE3>(vecBlockScheduler.vec2Done[streamId]);
+                        TIMER_BLOCK(GDN_TIMER_CALL(timerPtr_, timerPtr_->TokNoBarrier<Overwrite>(GdnTimer::FWH_AIV_VEC2, vecTimerTaskIter)));
                     }
                 }
                 currStage ^= 0x01;
+                // V1→V2→V1 翻转回 0 时表示一个调度任务的两段已完成。
+                if (currStage == 0) {
+                    TIMER_BLOCK(GDN_TIMER_CALL(timerPtr_, timerPtr_->setDynamicActualIter(GdnTimer::FWH_AIV_VEC1, vecTimerTaskIter + 1)));
+                    TIMER_BLOCK(GDN_TIMER_CALL(timerPtr_, timerPtr_->setDynamicActualIter(GdnTimer::FWH_AIV_VEC2, vecTimerTaskIter + 1)));
+                    ++vecTimerTaskIter;
+                }
             }
 
             if (storeFinalState && std::is_same<ElementFinalState, float>::value) {

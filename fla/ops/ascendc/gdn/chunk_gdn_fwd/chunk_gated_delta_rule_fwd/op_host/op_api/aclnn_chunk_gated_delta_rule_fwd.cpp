@@ -53,6 +53,7 @@ struct ChunkGatedDeltaRuleFwdParams {
     const aclTensor *initialStateOptional = nullptr;
     const aclIntArray *cuSeqlensOptional = nullptr;
     const aclIntArray *chunkIndicesOptional = nullptr;
+    const aclTensor *timerOptional = nullptr;
     const char *layout = nullptr;
     double scale = 1.0;
     int64_t chunkSize = CHUNK_GATED_DELTA_RULE_FWD_CHUNK_64;
@@ -608,6 +609,7 @@ static aclnnStatus ChunkGatedDeltaRuleFwdGetWorkspaceSizeImpl(
     const aclTensor *initialStateOptional,
     const aclIntArray *cuSeqlensOptional,
     const aclIntArray *chunkIndicesOptional,
+    const aclTensor *timerOptional,
     const char *layout,
     double scale,
     int64_t chunkSize,
@@ -630,7 +632,7 @@ static aclnnStatus ChunkGatedDeltaRuleFwdGetWorkspaceSizeImpl(
 {
     ChunkGatedDeltaRuleFwdParams params{
         q, k, v, g, beta, aLogOptional, dtBiasOptional, initialStateOptional,
-        cuSeqlensOptional, chunkIndicesOptional, layout, scale, chunkSize, useExp2,
+        cuSeqlensOptional, chunkIndicesOptional, timerOptional, layout, scale, chunkSize, useExp2,
         useQkL2norm, allowNegEigval, stateVFirst, oOut, finalStateOutOptional, qHatOutOptional,
         kHatOutOptional, qRstdOutOptional, kRstdOutOptional, betaEffOutOptional,
         gCumsumOutOptional, aOutOptional, hOutOptional};
@@ -866,7 +868,7 @@ static aclnnStatus ChunkGatedDeltaRuleFwdGetWorkspaceSizeImpl(
         outputFinalState, params.chunkSize, params.scale, params.gCumsumOutOptional != nullptr,
         oCompute, finalState,
         gCumsumCompute, aCompute, usePreparedCumsum ? 1 : 0, nativeQkv ? 1 : 0,
-        sequenceMajorOutput ? 1 : 0, executorPtr);
+        sequenceMajorOutput ? 1 : 0, params.timerOptional, executorPtr);
     GDN_STAGE_CHECK(phase6Result[0] != nullptr && phase6Result[2] != nullptr &&
                         phase6Result[3] != nullptr,
                         169112);
@@ -892,6 +894,7 @@ aclnnStatus aclnnChunkGatedDeltaRuleFwdGetWorkspaceSize(
     const aclTensor *initialStateOptional,
     const aclIntArray *cuSeqlensOptional,
     const aclIntArray *chunkIndicesOptional,
+    const aclTensor *timerOptional,
     const char *layout,
     double scale,
     int64_t chunkSize,
@@ -914,13 +917,13 @@ aclnnStatus aclnnChunkGatedDeltaRuleFwdGetWorkspaceSize(
 {
     L2_DFX_PHASE_1(aclnnChunkGatedDeltaRuleFwd,
                    DFX_IN(q, k, v, g, beta, aLogOptional, dtBiasOptional, initialStateOptional, cuSeqlensOptional,
-                          chunkIndicesOptional, layout, scale, chunkSize, useExp2, useQkL2norm,
+                          chunkIndicesOptional, timerOptional, layout, scale, chunkSize, useExp2, useQkL2norm,
                           allowNegEigval, stateVFirst),
                    DFX_OUT(oOut, finalStateOutOptional, qHatOutOptional, kHatOutOptional, qRstdOutOptional,
                            kRstdOutOptional, betaEffOutOptional, gCumsumOutOptional, aOutOptional, hOutOptional));
     return ChunkGatedDeltaRuleFwdGetWorkspaceSizeImpl(
         q, k, v, g, beta, aLogOptional, dtBiasOptional, initialStateOptional, cuSeqlensOptional, chunkIndicesOptional,
-        layout, scale, chunkSize, useExp2, useQkL2norm, allowNegEigval, stateVFirst, oOut,
+        timerOptional, layout, scale, chunkSize, useExp2, useQkL2norm, allowNegEigval, stateVFirst, oOut,
         finalStateOutOptional, qHatOutOptional,
         kHatOutOptional, qRstdOutOptional, kRstdOutOptional, betaEffOutOptional, gCumsumOutOptional, aOutOptional,
         hOutOptional, workspaceSize, executor);

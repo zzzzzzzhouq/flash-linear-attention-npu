@@ -125,7 +125,7 @@ class AclnnCtypesAbiTest(unittest.TestCase):
                             )
                             tensors = captured["tensors"]
                             self.assertEqual(captured["name"], "aclnnChunkGatedDeltaRuleFwd")
-                            self.assertEqual(len(captured["args"]), 27)
+                            self.assertEqual(len(captured["args"]), 28)
                             self.assertEqual(len(outputs), 10)
                             self.assertIsNone(outputs[4])
                             self.assertIs(outputs[0], tensors["o"])
@@ -181,7 +181,7 @@ class AclnnCtypesAbiTest(unittest.TestCase):
                                 use_qk_l2norm_in_kernel=enabled, disable_recompute=training,
                             )
                             self.assertEqual(len(outputs), 10)
-                            self.assertEqual(len(captured["args"]), 27)
+                            self.assertEqual(len(captured["args"]), 28)
                             q_hat, k_hat, q_rstd, k_rstd = outputs[6:]
                             if enabled:
                                 self.assertIsNot(q_hat, q)

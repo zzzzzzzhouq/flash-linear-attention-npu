@@ -41,6 +41,11 @@ public:
             .Format(formats).UnknownShapeFormat(formats).AutoContiguous();
         this->Input("chunk_indices").ParamType(OPTIONAL).ValueDepend(OPTIONAL).DataType(indexTypes)
             .Format(formats).UnknownShapeFormat(formats).AutoContiguous();
+        // timer 分支：可选 INT64 计时缓冲（fla/.../op_kernel/timer 布局），
+        // 非空时 kernel 各阶段写入 start/end cycle；空指针时计时点全部跳过。
+        this->Input("timer").ParamType(OPTIONAL).ValueDepend(OPTIONAL)
+            .DataType({ge::DT_INT64, ge::DT_INT64, ge::DT_INT64, ge::DT_INT64})
+            .Format(formats).UnknownShapeFormat(formats).AutoContiguous();
 
         this->Output("o").ParamType(REQUIRED).DataType(inputTypes).Format(formats)
             .UnknownShapeFormat(formats);

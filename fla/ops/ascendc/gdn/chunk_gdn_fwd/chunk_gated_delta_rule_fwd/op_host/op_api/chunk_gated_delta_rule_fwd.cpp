@@ -55,11 +55,12 @@ const std::array<const aclTensor *, 4> ChunkGatedDeltaRuleFwd(
     int64_t rawGLayout,
     int64_t qkvLayout,
     int64_t oLayout,
+    const aclTensor *timerOptional,
     aclOpExecutor *executor)
 {
     L0_DFX(ChunkGatedDeltaRuleFwd, q, k, v, beta, aStorage, rawG, gkOptional, initialStateOptional,
            cuSeqlensOptional, chunkIndicesOptional, outputFinalState, chunkSize, scale, outputGCumsum,
-           oOut, finalStateOut, gCumsumBthOut, aOut, rawGLayout, qkvLayout, oLayout);
+           oOut, finalStateOut, gCumsumBthOut, aOut, rawGLayout, qkvLayout, oLayout, timerOptional);
     const aclTensor *cuSeqlens = ConvertMetadata(cuSeqlensOptional, executor);
     const aclTensor *chunkIndices = ConvertMetadata(chunkIndicesOptional, executor);
     if ((cuSeqlensOptional != nullptr && cuSeqlens == nullptr) ||
@@ -71,7 +72,7 @@ const std::array<const aclTensor *, 4> ChunkGatedDeltaRuleFwd(
     const aclError ret = ADD_TO_LAUNCHER_LIST_AICORE(
         ChunkGatedDeltaRuleFwd,
         OP_INPUT(q, k, v, beta, aStorage, rawG, gkOptional, initialStateOptional,
-                 cuSeqlens, chunkIndices),
+                 cuSeqlens, chunkIndices, timerOptional),
         OP_OUTPUT(oOut, finalStateOut, gCumsumBthOut, aOut),
         OP_ATTR(outputFinalState, chunkSize, scale, outputGCumsum, rawGLayout, qkvLayout, oLayout));
     if (ret != ACLNN_SUCCESS) {

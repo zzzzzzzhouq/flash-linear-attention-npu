@@ -48,6 +48,7 @@ EXPECTED_PARAMETERS = (
     "initialStateOptional",
     "cuSeqlensOptional",
     "chunkIndicesOptional",
+    "timerOptional",
     "layout",
     "scale",
     "chunkSize",
@@ -69,8 +70,9 @@ EXPECTED_PARAMETERS = (
     "executor",
 )
 
+# timer 分支：timerOptional（INT64 计时缓冲）插在 chunkIndicesOptional 之后。
 EXPECTED_CTYPES = (
-    *("ctypes.c_void_p",) * 10,
+    *("ctypes.c_void_p",) * 11,
     "ctypes.c_char_p",
     "ctypes.c_double",
     "ctypes.c_int64",

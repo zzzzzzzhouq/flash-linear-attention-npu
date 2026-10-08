@@ -4,6 +4,8 @@
  */
 #include "../operators/chunk_gated_delta_rule_fwd_h/op_kernel/chunk_gated_delta_rule_fwd_h_struct.h"
 #include "../arch35/ho_pipeline_context.h"
+#include "../../timer/AscendTimerV2.hpp"
+#include "../../timer/AscendTimerV2_device.hpp"
 #if defined(__CCE_AICORE__) && __CCE_AICORE__ == 310
 #include "../operators/chunk_gated_delta_rule_fwd_h/op_kernel/arch35/gemm/kernel/gdn_fwd_h_kernel.hpp"
 #else
@@ -43,7 +45,8 @@ __aicore__ inline void RunFwdH(GM_ADDR k, GM_ADDR w, GM_ADDR u, GM_ADDR g, GM_AD
                                GM_ADDR initialState, GM_ADDR cuSeqlens, GM_ADDR chunkIndices,
                                GM_ADDR h, GM_ADDR vNew, GM_ADDR finalState, GM_ADDR tiling,
                                GM_ADDR userWorkspace,
-                               const GDN::HoPipelineContext &hoPipelineContext)
+                               const GDN::HoPipelineContext &hoPipelineContext,
+                               AscendTimerDevice *timer = nullptr)
 {
 #if defined(__CCE_AICORE__) && __CCE_AICORE__ == 310
     constexpr bool kB30 = Arch35GdnSyncTraits<Variant>::kB30;
@@ -59,6 +62,7 @@ __aicore__ inline void RunFwdH(GM_ADDR k, GM_ADDR w, GM_ADDR u, GM_ADDR g, GM_AD
 #if defined(__CCE_AICORE__) && __CCE_AICORE__ == 310
     kernel.Init(k, w, u, g, gk, initialState, cuSeqlens, chunkIndices, h, vNew, finalState,
                 tiling, userWorkspace, hoPipelineContext);
+    kernel.SetTimerPtr(timer);
 #else
     kernel.Init(k, w, u, g, gk, initialState, cuSeqlens, chunkIndices, h, vNew, finalState,
                 tiling, userWorkspace);
@@ -71,7 +75,8 @@ __aicore__ inline void DispatchFwdH(GM_ADDR k, GM_ADDR w, GM_ADDR u, GM_ADDR g, 
                                     GM_ADDR initialState, GM_ADDR cuSeqlens, GM_ADDR chunkIndices,
                                     GM_ADDR h, GM_ADDR vNew, GM_ADDR finalState, GM_ADDR tiling,
                                     GM_ADDR userWorkspace,
-                                    const GDN::HoPipelineContext &hoPipelineContext)
+                                    const GDN::HoPipelineContext &hoPipelineContext,
+                                    AscendTimerDevice *timer = nullptr)
 {
     const __gm__ GdnMegaArch35FwdHTilingData *hTiling =
         reinterpret_cast<const __gm__ GdnMegaArch35FwdHTilingData *>(tiling);
@@ -85,26 +90,26 @@ __aicore__ inline void DispatchFwdH(GM_ADDR k, GM_ADDR w, GM_ADDR u, GM_ADDR g, 
                       "B30 requires a supported generated initial-state dtype.");
         RunFwdH<InputT, float, StateT, TileShapes, false, Variant>(
             k, w, u, g, gk, initialState, cuSeqlens, chunkIndices, h, vNew, finalState,
-            tiling, userWorkspace, hoPipelineContext);
+            tiling, userWorkspace, hoPipelineContext, timer);
     } else {
         if (hTiling->stateDataType == 2) {
             if (hTiling->useGk) {
                 RunFwdH<InputT, float, float, TileShapes, true>(
                     k, w, u, g, gk, initialState, cuSeqlens, chunkIndices, h, vNew, finalState,
-                    tiling, userWorkspace, hoPipelineContext);
+                    tiling, userWorkspace, hoPipelineContext, timer);
             } else {
                 RunFwdH<InputT, float, float, TileShapes, false>(
                     k, w, u, g, gk, initialState, cuSeqlens, chunkIndices, h, vNew, finalState,
-                    tiling, userWorkspace, hoPipelineContext);
+                    tiling, userWorkspace, hoPipelineContext, timer);
             }
         } else if (hTiling->useGk) {
             RunFwdH<InputT, float, InputT, TileShapes, true>(
                 k, w, u, g, gk, initialState, cuSeqlens, chunkIndices, h, vNew, finalState,
-                tiling, userWorkspace, hoPipelineContext);
+                tiling, userWorkspace, hoPipelineContext, timer);
         } else {
             RunFwdH<InputT, float, InputT, TileShapes, false>(
                 k, w, u, g, gk, initialState, cuSeqlens, chunkIndices, h, vNew, finalState,
-                tiling, userWorkspace, hoPipelineContext);
+                tiling, userWorkspace, hoPipelineContext, timer);
         }
     }
 }
@@ -152,7 +157,8 @@ template <typename InputT, typename GT, Arch35GdnSyncVariant Variant>
 __aicore__ inline void RunFwdO(GM_ADDR q, GM_ADDR k, GM_ADDR vNew, GM_ADDR h, GM_ADDR g,
                                GM_ADDR cuSeqlens, GM_ADDR chunkIndices, GM_ADDR o,
                                GM_ADDR userWorkspace, const GdnMegaArch35FwdOTilingData *tiling,
-                               const GDN::HoPipelineContext &hoPipelineContext = {})
+                               const GDN::HoPipelineContext &hoPipelineContext = {},
+                               AscendTimerDevice *timer = nullptr)
 {
     using Sync = Arch35GdnSyncTraits<Variant>;
     using Kernel = Catlass::Gemm::Kernel::GDNFwdOKernel<
@@ -160,6 +166,7 @@ __aicore__ inline void RunFwdO(GM_ADDR q, GM_ADDR k, GM_ADDR vNew, GM_ADDR h, GM
     Kernel kernel;
     kernel.Init(q, k, vNew, h, g, cuSeqlens, chunkIndices, o, tiling, userWorkspace,
                 hoPipelineContext);
+    kernel.SetTimerPtr(timer);
     kernel.Process();
 }
 
@@ -207,10 +214,11 @@ template <typename InputT, Arch35GdnSyncVariant Variant>
 __aicore__ inline void DispatchFwdO(GM_ADDR q, GM_ADDR k, GM_ADDR vNew, GM_ADDR h, GM_ADDR g,
                                     GM_ADDR cuSeqlens, GM_ADDR chunkIndices, GM_ADDR o,
                                     GM_ADDR userWorkspace, const GdnMegaArch35FwdOTilingData *tiling,
-                                    const GDN::HoPipelineContext &hoPipelineContext = {})
+                                    const GDN::HoPipelineContext &hoPipelineContext = {},
+                                    AscendTimerDevice *timer = nullptr)
 {
     RunFwdO<InputT, float, Variant>(q, k, vNew, h, g, cuSeqlens, chunkIndices, o,
-                                    userWorkspace, tiling, hoPipelineContext);
+                                    userWorkspace, tiling, hoPipelineContext, timer);
 }
 
 } // namespace
