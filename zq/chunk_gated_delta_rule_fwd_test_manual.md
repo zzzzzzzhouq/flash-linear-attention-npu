@@ -4,6 +4,7 @@
 >
 > 环境基线（本文所有命令与结果均在此环境验证）：
 > - 代码：main @ `3f4c016a`（2026-09-29 更新后）
+> - 算子实现：**Phase 6 融合核**（公开名 `chunk_gated_delta_rule_fwd`，单入口 `aclnnChunkGatedDeltaRuleFwd`）的 **arch35 编译变体**（arch35 = Ascend 950/A5 专用硬件架构目录，310P/910B 构建不含此变体）；报错文案与 ATK 节点名仍保留 phase6 字样属正常
 > - Wheel：`flash_linear_attention_npu_a5-26.10.0+main.dev3f4c016`（`FLA_NPU_SOC=ascend950` 编译）
 > - ATK：26.9.8（pip 安装的 stock 版，**不含**开发者定制能力）
 > - SoC：Ascend 950（A5），单卡 device 0，Debian
