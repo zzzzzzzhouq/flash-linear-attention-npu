@@ -8,6 +8,8 @@
 > - ATK：26.9.8（pip 安装的 stock 版，**不含**开发者定制能力）
 > - SoC：Ascend 950（A5），单卡 device 0，Debian
 >
+> 两个前提：① 下文所有命令都在 **NPU 服务器的仓库根目录**下执行（示例环境 `/home/z00943842/flash-linear-attention-npu`）；② CANN / torch_npu / Python 3.11 等基础环境已就绪（新机器搭建参考仓内 docs，本手册不覆盖）。
+>
 > 仓内 `tests/atk/chunk_gated_delta_rule_fwd/README.md` 是按开发者定制 ATK 写的；本手册补充 stock 环境下**需要单独处理的地方**，全部用 ⚠️ 标出，共 3 个前置补丁 + 1 个自备工具，缺一不可。
 
 ---
@@ -31,19 +33,19 @@
 FLA_NPU_SOC=ascend950 python scripts/build_wheel.py
 ```
 
-安装时**指定完整文件名**，不要用 `dist/*.whl` 通配符——dist 里存有新旧多个 wheel 时会版本冲突：
+安装时**指定完整文件名**，不要用 `dist/*.whl` 通配符——dist 里存有新旧多个 wheel 时会版本冲突。文件名里的 `dev3f4c016` 是 commit 短哈希，随代码更新而变，先 `ls dist/` 看刚编出来的实际名字，替换下面命令再执行（本文环境为 `dev3f4c016`）：
 
 ```bash
 python3 -m pip install --force-reinstall --no-deps --no-cache-dir dist/flash_linear_attention_npu_a5-26.10.0+main.dev3f4c016-py3-none-manylinux_2_34_x86_64.whl
 ```
 
-顺手清理旧 wheel：
+顺手清掉旧 wheel（换成实际的旧文件名），避免下次误装：
 
 ```bash
 rm dist/flash_linear_attention_npu_a5-26.10.0+main.dev7a99eb2-*.whl
 ```
 
-**注意**：每次 `git pull` 更新代码后必须重编重装；同时检查本地补丁是否被冲掉（见 §7 补丁自检）。
+**注意**：每次 `git pull` 更新代码后必须重编重装；同时检查本地补丁是否被冲掉（见 §6 补丁自检）。
 
 ### 1.2 确认 ATK 版本与来源
 
@@ -65,10 +67,10 @@ atk --version && which atk && pip3 show atk 2>/dev/null | head -5
 
 精度用小 shape 是**组合覆盖**（dtype × V 维度 × chunk × 定长/变长 × 状态），性能必须用真实模型规模——两边的用例文件不同，**精度 6 条、性能 2 条是设计如此，不是漏跑**。
 
-统一入口：
+统一入口（**本手册只用到 `-scope=performance`**；精度走 §4.1 的专用三路脚本，不走这个入口）：
 
 ```bash
-bash tests/atk/run_test_cpu.sh -op=chunk_gated_delta_rule_fwd -npu_device_id=0 -scope=accuracy|performance|determinism|mssanitizer --soc=ascend950
+bash tests/atk/run_test_cpu.sh -op=chunk_gated_delta_rule_fwd -npu_device_id=0 -scope=performance --soc=ascend950
 ```
 
 ---
@@ -97,7 +99,7 @@ grep -n "layout=" tests/atk/chunk_gated_delta_rule_fwd/six_aclnn_benchmark.py
 
 期望：92 行 `bnsd`、98 行 `tnd`。
 
-**⚠️ 勿用 bsnd 替代 varlen 的 tnd**：实测 `solve_tri` 用 `bsnd` + `cu_seqlens` + **多序列**时**不报错、安静地算错**（第二序列的 A 整块 O(1) 偏差，详见 §8 问题 6）。这是最危险的一类静默错误，已回退规避，但值得报给 kernel 负责人。
+**⚠️ 勿用 bsnd 替代 varlen 的 tnd**：实测 `solve_tri` 用 `bsnd` + `cu_seqlens` + **多序列**时**不报错、安静地算错**（第二序列的 A 整块 O(1) 偏差，详见 §7 问题 5）。这是最危险的一类静默错误，已回退规避，但值得报给 kernel 负责人。
 
 ### 3.2 ⚠️ 补丁二：g 生成范围（上游 bug，精度性能都要）
 
@@ -199,13 +201,19 @@ print('shim appended')
 GDN_ATK_CASE_JSON="$PWD/tests/atk/chunk_gated_delta_rule_fwd/atk_chunk_gated_delta_rule_fwd_mss.json" bash tests/atk/chunk_gated_delta_rule_fwd/scripts/run_double_benchmark.sh 0
 ```
 
+两个参数说明：
+- 末尾的 `0` 是 **NPU 设备号**（默认就是 0，单卡环境可不传）
+- `GDN_ATK_CASE_JSON` 指定用例文件；不设时默认跑正式 500 条（`atk_chunk_gated_delta_rule_fwd.json`），冒烟必须显式指到 `_mss.json`
+
+脚本内置了 `--save_data input/output/profile`（数据自动落盘，§4.2 用）、ATK 版本检查和并发度控制（`GDN_ATK_MAX_TASK`，默认 5），跑完在终端打印 `双标杆精度测试完成：<run_dir>`。
+
 **怎么判断跑对了**：
-- `[gdn-double-atk] 角色合同通过：6 case，角色=['dut', 'benchmark', 'golden']` —— 三路任务全部初始化并执行
-- 汇总 JSON 里 `execution_failed: 6` 是**没有比较器结果的记法**（stub 的预期表现），不是执行失败；执行失败的真凶看 `atk_task.log`（里面应当只有 NotImplementedError、没有别的 Traceback）
+- run 目录下 `runtime_role_contract.json` 生成且日志出现 `[gdn-double-atk] 角色合同通过：6 case，角色=['dut', 'benchmark', 'golden']` —— 三路任务全部初始化并执行
+- run 目录下 `summary.json` 里 `execution_failed: 6` 是**没有比较器结果的记法**（stub 的预期表现），不是执行失败；执行失败的真凶看同目录 `atk_task.log`（里面应当只有 NotImplementedError、没有别的 Traceback）
 
 ### 4.2 🔧 自备工具：离线三方比对
 
-数据已随 `--save_data output` 落盘，目录结构：
+三路数据由脚本自动落盘（`--save_data output` 已内置，无需手动加参数），目录结构：
 
 ```
 atk_output/double_benchmark/<时间戳>/atk_output/<API目录>/
@@ -218,10 +226,14 @@ atk_output/double_benchmark/<时间戳>/atk_output/<API目录>/
 
 输出个数随 scenario 变：3 个 = `[o, g_cumsum, A]`；4 个 = `[o, final_state, g_cumsum, A]`。
 
-比对脚本 `compare_offline.py` 放仓根（完整源码见附录 A），运行：
+比对脚本 `compare_offline.py` 放仓根（完整源码见附录 A）。两种等价用法——传 run 目录时间戳，或不带参数自动取最新一轮：
 
 ```bash
-python3 compare_offline.py <run目录时间戳>
+python3 compare_offline.py $(ls -t tests/atk/chunk_gated_delta_rule_fwd/atk_output/double_benchmark/ | head -1)
+```
+
+```bash
+python3 compare_offline.py
 ```
 
 ### 4.3 结果怎么读
@@ -270,7 +282,7 @@ python3 compare_offline.py <run目录时间戳>
 bash tests/atk/chunk_gated_delta_rule_fwd/scripts/run_matrix.sh 0
 ```
 
-分片入口，每 25 条起一个 fresh ATK 进程，可断点续跑。跑完用 `compare_offline.py` 对最终 run 目录离线比对（脚本按 case 数自适应，NAMES 映射只认 3/4 输出，500 条同构无需改动）。
+分片入口（末尾 `0` 同样是设备号），每 25 条起一个 fresh ATK 进程，已完成的分片自动复用、可断点续跑。**注意输出布局与冒烟不同**：结果在 `atk_output/generalized500_<时间戳>/shard_<起>_<止>/`，每个 shard 目录内部结构同 §4.2（`atk_output/<API>/...`），且 ATK 任务名没有 `_mss` 后缀。离线比对需对每个 shard 各跑一次 `python3 compare_offline.py <shard目录>`（附录 A 脚本支持直接传 run 目录），并把脚本外层循环 `range(6)` 改成对应分片的 `range(start, end)`。
 
 ---
 
@@ -390,7 +402,7 @@ python3 -c "import json; d=json.load(open('tests/atk/chunk_gated_delta_rule_fwd/
 5. **性能 case `output[0] 包含 NaN/Inf`** → 补丁二（§3.2），对照实验定位 g 正值
 6. **离线比对 case 3/5 `bm_err≈1.0`** → 曾误用 bsnd 修 varlen（问题 5），错误精确覆盖第二序列（case 5 token 127~317 全中、4 头全中），回退 tnd 后恢复
 7. **性能五轮不一致（9/29 上午 2879/3193 µs vs 其余三轮 ~1704 µs）** → 排除代码因素（wheel 安装于 9/29 09:25，早于全部轮次，同一二进制）；慢窗口仅出现在 9/29 上午且 std 高达 218 µs，属设备异常状态（降频或共享服务器隐蔽负载）；9/30 两轮背靠背独占复现出稳定快值（1703/1706、2704/2705，std 2~3 µs）定为正式结论，详见 §5 设备状态陷阱
-8. 最终：精度 OVERALL PASS + 性能正式报告（满频/独占两轮对照），全部结论有落盘数据支撑
+8. 最终：精度 OVERALL PASS + 性能正式报告（9/30 两轮独占复现定稿），全部结论有落盘数据支撑
 
 ---
 
@@ -400,15 +412,24 @@ python3 -c "import json; d=json.load(open('tests/atk/chunk_gated_delta_rule_fwd/
 #!/usr/bin/env python3
 """离线三方精度比对: DUT(融合) vs golden(FP64), benchmark(六算子链) vs golden(FP64).
 
-用法: python3 compare_offline.py <double_benchmark下的run目录时间戳>
+用法: python3 compare_offline.py [run目录 | double_benchmark下的时间戳]
+      不带参数时自动取 double_benchmark 下最新一轮。
+      run 目录 = 含 atk_output 子目录的那层（冒烟时间戳目录或 500 条矩阵的 shard 目录）。
 """
 import glob
 import os
 import sys
 import torch
 
-RUN = sys.argv[1] if len(sys.argv) > 1 else "latest"
-BASE = f"tests/atk/chunk_gated_delta_rule_fwd/atk_output/double_benchmark/{RUN}/atk_output"
+ROOT = "tests/atk/chunk_gated_delta_rule_fwd/atk_output/double_benchmark"
+arg = sys.argv[1] if len(sys.argv) > 1 else sorted(
+    p for p in os.listdir(ROOT) if os.path.isdir(os.path.join(ROOT, p)))[-1]
+if os.path.isdir(os.path.join(arg, "atk_output")):
+    run_dir = arg                      # 直接传 run 目录（含 atk_output 的那层，如 shard 目录）
+else:
+    run_dir = os.path.join(ROOT, arg)  # 传 double_benchmark 下的时间戳
+print("run dir:", run_dir)
+BASE = os.path.join(run_dir, "atk_output")
 BASE = os.path.dirname(sorted(glob.glob(f"{BASE}/*/output"))[0])
 TASK = "atk_chunk_gated_delta_rule_fwd_mss"
 THRESH = {"max": 5.0, "avg": 1.5, "rms": 1.5}
@@ -473,7 +494,7 @@ for cid in range(6):
 print("\nOVERALL:", "PASS" if overall else "FAIL")
 ```
 
-注：跑正式 500 条时把 `TASK` 改为对应 API 目录名、外层循环 `range(6)` 改为 `range(500)`。
+注：① 500 条矩阵的 ATK 任务名没有 `_mss` 后缀（`TASK` 改为 `atk_chunk_gated_delta_rule_fwd`），且结果是分片布局（见 §4.5）——对每个 shard 目录各跑一次、`range(6)` 改成对应分片的 `range(start, end)`；② `NAMES` 映射只认 3/4 个输出，用例同构时无需改动。
 
 ---
 
