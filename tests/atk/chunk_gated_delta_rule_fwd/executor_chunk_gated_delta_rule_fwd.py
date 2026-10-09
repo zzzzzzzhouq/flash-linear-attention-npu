@@ -319,3 +319,38 @@ class FunctionApi(BaseApi):
             "execution_device_id": self._execution_device_id,
             "a_padding_policy": "zero_non_contract_tail",
         }
+
+
+def _register_cv_fused_double_benchmark_stub() -> None:
+    """Stock ATK 缺少 cv_fused_double_benchmark 比较器时注册占位实现。
+
+    post_process 阶段无论精度还是性能任务都会构造 CompareExecutor，
+    并到 atk.tasks.post_process.ACCURACY_REGISTRY 查询该比较器；stock
+    pip 版 ATK 没有它，缺这个占位会导致 KeyError，连性能报告都无法
+    生成。占位的 accuracy_calc 刻意 raise，防止"比对缺失"被误判为
+    PASS——精度结论请用离线三方比对（见 zq/ 测试手册 §4.2）。
+    """
+    try:
+        from atk.tasks.post_process import ACCURACY_REGISTRY
+    except Exception:
+        return
+    if "cv_fused_double_benchmark" in ACCURACY_REGISTRY:
+        return
+
+    class _CvFusedDoubleBenchmarkStub:
+        def __init__(self, config, need_md5=None, **thresholds):
+            self.config = config
+            self.thresholds = thresholds
+            self.bm_path = None
+            self.bm_remote_path = None
+
+        def accuracy_calc(self, *_args, **_kwargs):
+            raise NotImplementedError(
+                "cv_fused_double_benchmark comparator absent in stock ATK; "
+                "use offline comparison or the vendor ATK build.")
+
+    ACCURACY_REGISTRY.register_with_key(
+        "cv_fused_double_benchmark", _CvFusedDoubleBenchmarkStub)
+
+
+_register_cv_fused_double_benchmark_stub()
