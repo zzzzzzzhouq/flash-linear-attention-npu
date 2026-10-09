@@ -46,11 +46,6 @@ constexpr int64_t CHUNK_128 = 128;
 constexpr uint32_t TILING_KEY_V128 = 1;
 constexpr uint32_t TILING_KEY_V256 = 2;
 constexpr uint32_t TILING_KEY_B30 = 301;
-constexpr int64_t MAIN_MODEL_BATCH = 1;
-constexpr int64_t MAIN_MODEL_K_HEADS = 16;
-constexpr int64_t MAIN_MODEL_V_HEADS = 32;
-constexpr int64_t MAIN_MODEL_TOKENS = 11274;
-constexpr uint64_t MAIN_MODEL_CHUNKS = 177;
 constexpr uint64_t WORKSPACE_ALIGNMENT = 512;
 constexpr uint64_t TILING_ALIGNMENT = 8;
 constexpr uint64_t FP32_BLOCK_ELEMS = 8;
@@ -226,15 +221,23 @@ ge::graphStatus Tiling4ChunkGatedDeltaRuleFwdArch35(gert::TilingContext *context
 
     const platform_ascendc::PlatformAscendC platform(context->GetPlatformInfo());
     const auto *initialStateDesc = context->GetOptionalInputDesc(INPUT_INITIAL_STATE);
+    // B30 selects the fused head-major sync variant (TilingKey 301).  The gate
+    // mirrors the variant's compile-time contract only: BF16 inputs, K=128 and
+    // V=128 tiles, 64-token solve/recompute blocks, and an initial state in
+    // FP32/BF16 whose dtype also types the required final-state output.
+    // Batch, head counts, sequence count, and token count are scheduler data:
+    // BuildHoPipelineContext drops the H/O pipeline on device when a shape
+    // leaves no consumer suffix or no cross-chunk sequence, and the same
+    // instance then falls back to the serial schedule with the standard H/O
+    // SyncAll.  Varlen calls stay single-batch ([1, total_tokens, Hk, K]).
     const bool useB30 =
         platform.GetSocVersion() == platform_ascendc::SocVersion::ASCEND950 &&
         isBf16 && initialStateDesc != nullptr &&
         (initialStateDesc->GetDataType() == ge::DT_FLOAT ||
          initialStateDesc->GetDataType() == ge::DT_BF16) &&
-        isVarlen && batch == MAIN_MODEL_BATCH && heads == MAIN_MODEL_K_HEADS &&
-        valueHeads == MAIN_MODEL_V_HEADS && tokens == MAIN_MODEL_TOKENS &&
+        (!isVarlen || batch == 1) &&
         kDim == SUPPORTED_K_DIM && vDim == SUPPORTED_V_DIM_128 && *chunkSize == CHUNK_64 &&
-        IsShape(cuShape, {2}) && varlenChunks == MAIN_MODEL_CHUNKS && *outputFinalState;
+        *outputFinalState;
     const uint64_t aicCoreNum = std::max<uint64_t>(1, platform.GetCoreNumAic());
     const uint64_t aivCoreNum = std::max<uint64_t>(1, platform.GetCoreNumAiv());
     const uint64_t systemWorkspace = platform.GetLibApiWorkSpaceSize();
