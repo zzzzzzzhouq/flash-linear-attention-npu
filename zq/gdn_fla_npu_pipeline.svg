@@ -3,12 +3,13 @@
     text { font-family: 'Microsoft YaHei','PingFang SC',sans-serif; fill:#263238; }
     .title { font-size:30px; font-weight:bold; }
     .sub   { font-size:17px; fill:#78909c; }
-    .grp   { font-size:21px; font-weight:bold; }
-    .blk   { font-size:16px; font-weight:bold; }
-    .blks  { font-size:14px; }
+    .grp   { font-size:20px; font-weight:bold; }
+    .blk   { font-size:15px; font-weight:bold; }
+    .blks  { font-size:13px; }
+    .tiny  { font-size:11px; }
     .lane  { font-size:15px; font-weight:bold; fill:#546e7a; }
-    .dep   { font-size:15px; fill:#c62828; font-weight:bold; }
-    .ann   { font-size:16px; }
+    .dep   { font-size:14px; fill:#c62828; font-weight:bold; }
+    .ann   { font-size:15px; }
     .tick  { font-size:14px; fill:#90a4ae; }
   </style>
   <defs>
@@ -22,7 +23,7 @@
   <rect width="1800" height="1460" fill="#ffffff"/>
 
   <text x="900" y="48" text-anchor="middle" class="title">GDN 前向硬件流水图：AIC（Cube）与 AIV（Vector）双流水时间轴</text>
-  <text x="900" y="80" text-anchor="middle" class="sub">串行 = flag 握手等待｜并行 = 流水间同时开算 / 包间·块间重叠｜块宽为示意，非严格比例</text>
+  <text x="900" y="80" text-anchor="middle" class="sub">串行 = flag 握手等待（灰块右端 = 依赖箭头位置）｜并行 = 流水间同时开算 / 包间·块间重叠｜虚线 = 下一包·下一块｜块宽为示意，非严格比例</text>
 
   <!-- legend -->
   <rect x="70" y="100" width="52" height="28" rx="7" fill="#ffe3bd" stroke="#e65100" stroke-width="2"/>
@@ -30,236 +31,315 @@
   <rect x="330" y="100" width="52" height="28" rx="7" fill="#cfe3fa" stroke="#12518c" stroke-width="2"/>
   <text x="392" y="120" class="ann" font-weight="bold">V：Vector（AIV）</text>
   <rect x="590" y="100" width="52" height="28" rx="7" fill="#fff3e0" stroke="#e65100" stroke-width="1.8" stroke-dasharray="6 4"/>
-  <text x="652" y="120" class="ann" font-weight="bold">虚线框：预取 / 下一包·下一块（重叠推进）</text>
+  <text x="652" y="120" class="ann" font-weight="bold">虚线框：下一包 / 下一块（重叠推进）</text>
   <rect x="1030" y="100" width="52" height="28" rx="7" fill="#f2f4f6" stroke="#8d9aa5" stroke-width="1.6"/>
-  <text x="1092" y="120" class="ann" font-weight="bold">灰：空闲等待flag</text>
-  <line x1="1280" y1="114" x2="1330" y2="114" stroke="#c62828" stroke-width="2.2" stroke-dasharray="8 5" marker-end="url(#arR)"/>
-  <text x="1340" y="120" class="ann" font-weight="bold">跨核 flag依赖（串行点）</text>
+  <text x="1092" y="120" class="ann" font-weight="bold">灰：等 flag</text>
+  <line x1="1210" y1="114" x2="1260" y2="114" stroke="#c62828" stroke-width="2.2" stroke-dasharray="8 5" marker-end="url(#arR)"/>
+  <text x="1270" y="120" class="ann" font-weight="bold">跨核 flag 依赖（串行点）</text>
 
   <!-- ================= Section 1: Prepare ================= -->
   <rect x="50" y="160" width="1700" height="310" rx="14" fill="#fbfcfd" stroke="#9fb0bd" stroke-width="1.6" stroke-dasharray="7 5"/>
-  <text x="900" y="196" text-anchor="middle" class="grp">① Prepare（MIX AIC:AIV = 1:2）—— C/V 交错握手；S6 与 S4/S5 两条流水并行；下一包的 S1′ 与上包的 S5/S7 并行重叠</text>
+  <text x="900" y="194" text-anchor="middle" class="grp">① Prepare（MIX AIC:AIV = 1:2）—— C/V 逐级 flag 握手；S6 与 S4/S5 并行；包间无全局屏障（S1′ ∥ 包N 的 S5 尾/S7；w/u 回写推迟到下包）</text>
 
   <text x="95" y="268" class="lane">AIC</text>
   <text x="80" y="288" class="lane">(Cube)</text>
   <text x="95" y="383" class="lane">AIV</text>
   <text x="80" y="403" class="lane">(Vector)</text>
 
-  <!-- AIC lane blocks -->
-  <rect x="140" y="230" width="140" height="65" rx="8" fill="#f2f4f6" stroke="#8d9aa5" stroke-width="1.5"/>
-  <text x="210" y="268" text-anchor="middle" class="blks">空闲·等 flag</text>
-  <rect x="280" y="230" width="140" height="65" rx="8" fill="#ffe3bd" stroke="#e65100" stroke-width="2"/>
-  <text x="350" y="258" text-anchor="middle" class="blk">S2 KKT【C】</text>
-  <text x="350" y="280" text-anchor="middle" class="blks">k̂·k̂ᵀ</text>
-  <rect x="420" y="230" width="110" height="65" rx="8" fill="#f2f4f6" stroke="#8d9aa5" stroke-width="1.5"/>
-  <text x="475" y="268" text-anchor="middle" class="blks">等 L</text>
-  <rect x="530" y="230" width="160" height="65" rx="8" fill="#ffe3bd" stroke="#e65100" stroke-width="2"/>
-  <text x="610" y="258" text-anchor="middle" class="blk">S4 求逆①【C】</text>
-  <text x="610" y="280" text-anchor="middle" class="blks">Y=I+LL·(−L)</text>
-  <rect x="690" y="230" width="140" height="65" rx="8" fill="#ffe3bd" stroke="#e65100" stroke-width="2"/>
-  <text x="760" y="258" text-anchor="middle" class="blk">S5 求逆②【C】</text>
-  <text x="760" y="280" text-anchor="middle" class="blks">A=(I+L)⁻¹</text>
-  <rect x="830" y="230" width="170" height="65" rx="8" fill="#ffe3bd" stroke="#e65100" stroke-width="2"/>
-  <text x="915" y="258" text-anchor="middle" class="blk">S7 W/U【C】</text>
-  <text x="915" y="280" text-anchor="middle" class="blks">W=A·kbg, U=A·vb</text>
-  <rect x="1090" y="230" width="150" height="65" rx="8" fill="#fff3e0" stroke="#e65100" stroke-width="1.8" stroke-dasharray="6 4"/>
-  <text x="1165" y="258" text-anchor="middle" class="blk">S4′ 下一包</text>
-  <text x="1165" y="280" text-anchor="middle" class="blks">（k′ 已就绪）</text>
-  <rect x="1240" y="230" width="130" height="65" rx="8" fill="#fff3e0" stroke="#e65100" stroke-width="1.8" stroke-dasharray="6 4"/>
-  <text x="1305" y="268" text-anchor="middle" class="blk">S5′</text>
-  <rect x="1370" y="230" width="150" height="65" rx="8" fill="#fff3e0" stroke="#e65100" stroke-width="1.8" stroke-dasharray="6 4"/>
-  <text x="1445" y="258" text-anchor="middle" class="blk">S7′</text>
-  <text x="1530" y="258" class="blks" fill="#90a4ae">……</text>
+  <!-- AIC lane: pack N -->
+  <rect x="140" y="230" width="160" height="65" rx="8" fill="#f2f4f6" stroke="#8d9aa5" stroke-width="1.5"/>
+  <text x="220" y="258" text-anchor="middle" class="blks">等 k̂（S1）</text>
+  <text x="220" y="280" text-anchor="middle" class="tiny" fill="#78909c">首个包才有</text>
+  <rect x="300" y="230" width="140" height="65" rx="8" fill="#ffe3bd" stroke="#e65100" stroke-width="2"/>
+  <text x="370" y="258" text-anchor="middle" class="blk">S2 KKT【C】</text>
+  <text x="370" y="280" text-anchor="middle" class="blks">k̂·k̂ᵀ</text>
+  <rect x="440" y="230" width="140" height="65" rx="8" fill="#f2f4f6" stroke="#8d9aa5" stroke-width="1.5"/>
+  <text x="510" y="258" text-anchor="middle" class="blks">等 −L</text>
+  <text x="510" y="280" text-anchor="middle" class="tiny" fill="#78909c">(S3 打包完)</text>
+  <rect x="580" y="230" width="150" height="65" rx="8" fill="#ffe3bd" stroke="#e65100" stroke-width="2"/>
+  <text x="655" y="258" text-anchor="middle" class="blk">S4 求逆①【C】</text>
+  <text x="655" y="280" text-anchor="middle" class="blks">Y=I+LL·(−L)</text>
+  <rect x="730" y="230" width="140" height="65" rx="8" fill="#ffe3bd" stroke="#e65100" stroke-width="2"/>
+  <text x="800" y="258" text-anchor="middle" class="blk">S5 求逆②【C】</text>
+  <text x="800" y="280" text-anchor="middle" class="blks">A=(I+L)⁻¹</text>
+  <rect x="870" y="230" width="150" height="65" rx="8" fill="#ffe3bd" stroke="#e65100" stroke-width="2"/>
+  <text x="945" y="258" text-anchor="middle" class="blk">S7 W/U【C】</text>
+  <text x="945" y="280" text-anchor="middle" class="blks">W=A·kbg U=A·vb</text>
+  <!-- AIC lane: pack N+1 (dashed) -->
+  <rect x="1020" y="230" width="130" height="65" rx="8" fill="#fff3e0" stroke="#e65100" stroke-width="1.8" stroke-dasharray="6 4"/>
+  <text x="1085" y="258" text-anchor="middle" class="blk">S2′【C】</text>
+  <text x="1085" y="280" text-anchor="middle" class="blks">下一包 KKT</text>
+  <rect x="1150" y="230" width="140" height="65" rx="8" fill="#f8fafc" stroke="#8d9aa5" stroke-width="1.5" stroke-dasharray="6 4"/>
+  <text x="1220" y="258" text-anchor="middle" class="blks">等 −L′</text>
+  <text x="1220" y="280" text-anchor="middle" class="tiny" fill="#78909c">(S3′ 打包完)</text>
+  <rect x="1290" y="230" width="110" height="65" rx="8" fill="#fff3e0" stroke="#e65100" stroke-width="1.8" stroke-dasharray="6 4"/>
+  <text x="1345" y="268" text-anchor="middle" class="blk">S4′【C】</text>
+  <rect x="1400" y="230" width="100" height="65" rx="8" fill="#fff3e0" stroke="#e65100" stroke-width="1.8" stroke-dasharray="6 4"/>
+  <text x="1450" y="268" text-anchor="middle" class="blk">S5′【C】</text>
+  <rect x="1600" y="230" width="80" height="65" rx="8" fill="#fff3e0" stroke="#e65100" stroke-width="1.8" stroke-dasharray="6 4"/>
+  <text x="1640" y="268" text-anchor="middle" class="blk">S7′【C】</text>
+  <text x="1700" y="268" class="blks" fill="#90a4ae">……</text>
 
-  <!-- AIV lane blocks -->
-  <rect x="140" y="345" width="200" height="65" rx="8" fill="#cfe3fa" stroke="#12518c" stroke-width="2"/>
-  <text x="240" y="373" text-anchor="middle" class="blk">S0＋S1【V】</text>
-  <text x="240" y="395" text-anchor="middle" class="blks">k̂=L2Norm · g′/β 准备</text>
-  <rect x="340" y="345" width="100" height="65" rx="8" fill="#f2f4f6" stroke="#8d9aa5" stroke-width="1.5"/>
-  <text x="390" y="383" text-anchor="middle" class="blks">等 KKT</text>
-  <rect x="440" y="345" width="130" height="65" rx="8" fill="#cfe3fa" stroke="#12518c" stroke-width="2"/>
-  <text x="505" y="373" text-anchor="middle" class="blk">S3【V】</text>
-  <text x="505" y="395" text-anchor="middle" class="blks">债务表 L·下三角</text>
-  <rect x="570" y="345" width="260" height="65" rx="8" fill="#cfe3fa" stroke="#12518c" stroke-width="2"/>
-  <text x="700" y="373" text-anchor="middle" class="blk">S6【V】右端组装　∥ 与 S4/S5 并行</text>
-  <text x="700" y="395" text-anchor="middle" class="blks">vb=v·β　kbg=k̂·β·exp*(g′)</text>
-  <rect x="830" y="345" width="170" height="65" rx="8" fill="#cfe3fa" stroke="#12518c" stroke-width="2"/>
-  <text x="915" y="373" text-anchor="middle" class="blk">回写【V】</text>
-  <text x="915" y="395" text-anchor="middle" class="blks">w/u → GM</text>
-  <rect x="1090" y="345" width="190" height="65" rx="8" fill="#fff3e0" stroke="#12518c" stroke-width="1.8" stroke-dasharray="6 4"/>
-  <text x="1185" y="373" text-anchor="middle" class="blk">S1′【V】下一包</text>
-  <text x="1185" y="395" text-anchor="middle" class="blks">∥ 与上包 S5/S7 并行重叠</text>
-  <rect x="1280" y="345" width="130" height="65" rx="8" fill="#fff3e0" stroke="#12518c" stroke-width="1.8" stroke-dasharray="6 4"/>
-  <text x="1345" y="383" text-anchor="middle" class="blk">S3′</text>
-  <text x="1420" y="383" class="blks" fill="#90a4ae">……</text>
+  <!-- AIV lane: pack N -->
+  <rect x="140" y="345" width="160" height="65" rx="8" fill="#cfe3fa" stroke="#12518c" stroke-width="2"/>
+  <text x="220" y="373" text-anchor="middle" class="blk">S0＋S1【V】</text>
+  <text x="220" y="395" text-anchor="middle" class="blks">k̂=L2Norm·g′/β</text>
+  <rect x="300" y="345" width="140" height="65" rx="8" fill="#f2f4f6" stroke="#8d9aa5" stroke-width="1.5"/>
+  <text x="370" y="373" text-anchor="middle" class="blks">等 KKT</text>
+  <text x="370" y="395" text-anchor="middle" class="tiny" fill="#78909c">(S2 Fixpipe→UB)</text>
+  <rect x="440" y="345" width="140" height="65" rx="8" fill="#cfe3fa" stroke="#12518c" stroke-width="2"/>
+  <text x="510" y="373" text-anchor="middle" class="blk">S3【V】</text>
+  <text x="510" y="395" text-anchor="middle" class="blks">L=KKT⊙G·下三角</text>
+  <rect x="580" y="345" width="230" height="65" rx="8" fill="#cfe3fa" stroke="#12518c" stroke-width="2"/>
+  <text x="695" y="373" text-anchor="middle" class="blk">S6【V】 ∥ S4/S5</text>
+  <text x="695" y="395" text-anchor="middle" class="blks">vb=v·β　kbg=k̂·β·exp*(g′)</text>
+  <!-- AIV lane: pack N+1 (dashed) -->
+  <rect x="810" y="345" width="140" height="65" rx="8" fill="#fff3e0" stroke="#12518c" stroke-width="1.8" stroke-dasharray="6 4"/>
+  <text x="880" y="373" text-anchor="middle" class="blk">S1′【V】 下一包</text>
+  <text x="880" y="395" text-anchor="middle" class="tiny">k̂ L1 槽等 S4 释放</text>
+  <rect x="950" y="345" width="200" height="65" rx="8" fill="#f8fafc" stroke="#8d9aa5" stroke-width="1.5" stroke-dasharray="6 4"/>
+  <text x="1050" y="373" text-anchor="middle" class="blks">等 KKT′</text>
+  <text x="1050" y="395" text-anchor="middle" class="tiny" fill="#78909c">(S2′ Fixpipe→UB)</text>
+  <rect x="1150" y="345" width="140" height="65" rx="8" fill="#fff3e0" stroke="#12518c" stroke-width="1.8" stroke-dasharray="6 4"/>
+  <text x="1220" y="373" text-anchor="middle" class="blk">S3′【V】</text>
+  <rect x="1290" y="345" width="130" height="65" rx="8" fill="#cfe3fa" stroke="#12518c" stroke-width="2"/>
+  <text x="1355" y="373" text-anchor="middle" class="blk">回写 w/u（包N）</text>
+  <text x="1355" y="395" text-anchor="middle" class="tiny">S7 结果 UB→GM</text>
+  <rect x="1420" y="345" width="180" height="65" rx="8" fill="#fff3e0" stroke="#12518c" stroke-width="1.8" stroke-dasharray="6 4"/>
+  <text x="1510" y="373" text-anchor="middle" class="blk">S6′【V】 ∥ S4′/S5′</text>
+  <text x="1620" y="383" class="blks" fill="#90a4ae">……</text>
 
-  <!-- dependency arrows -->
+  <!-- dependency arrows: wait block right edge == producer end == consumer start -->
   <line x1="300" y1="345" x2="300" y2="297" stroke="#c62828" stroke-width="2" stroke-dasharray="7 4" marker-end="url(#arR)"/>
-  <text x="238" y="322" class="dep">k′ 落 L1</text>
-  <line x1="575" y1="345" x2="575" y2="297" stroke="#c62828" stroke-width="2" stroke-dasharray="7 4" marker-end="url(#arR)"/>
-  <text x="452" y="322" class="dep">−L 就绪</text>
+  <text x="306" y="326" class="dep">k̂ 落 L1</text>
+  <line x1="440" y1="295" x2="440" y2="343" stroke="#c62828" stroke-width="2" stroke-dasharray="7 4" marker-end="url(#arR)"/>
+  <text x="446" y="326" class="dep">KKT Fixpipe→UB</text>
+  <line x1="580" y1="345" x2="580" y2="297" stroke="#c62828" stroke-width="2" stroke-dasharray="7 4" marker-end="url(#arR)"/>
+  <text x="586" y="326" class="dep">−L 落 L1</text>
+  <line x1="812" y1="345" x2="868" y2="299" stroke="#c62828" stroke-width="2" stroke-dasharray="7 4" marker-end="url(#arR)"/>
+  <text x="770" y="322" text-anchor="end" class="dep">vb/kbg 落 L1</text>
+  <line x1="1022" y1="299" x2="1288" y2="343" stroke="#c62828" stroke-width="2" stroke-dasharray="2 4" marker-end="url(#arR)"/>
+  <text x="1140" y="338" text-anchor="end" class="dep">W/U 留 UB，S3′ 后排空</text>
+  <line x1="1150" y1="295" x2="1150" y2="343" stroke="#c62828" stroke-width="2" stroke-dasharray="7 4" marker-end="url(#arR)"/>
+  <text x="1156" y="310" class="dep" font-size="12">KKT′</text>
+  <line x1="1290" y1="345" x2="1290" y2="297" stroke="#c62828" stroke-width="2" stroke-dasharray="7 4" marker-end="url(#arR)"/>
+  <text x="1296" y="326" class="dep">−L′ 落 L1</text>
 
   <line x1="140" y1="440" x2="1690" y2="440" stroke="#b0bec5" stroke-width="1.5" marker-end="url(#ar)"/>
-  <text x="1690" y="462" text-anchor="end" class="tick">时间 →　同链 C→V→C→V 串行握手；两条流水物理上并行；包间预取重叠</text>
+  <text x="1690" y="462" text-anchor="end" class="tick">时间 →　包内 C→V→C→V 逐级握手；S6 ∥ S4/S5；包间无全局屏障，AIC 的 S2′ 紧接 S7；AIV 等下包 KKT′ 是包边界的主要等待</text>
 
   <!-- ================= Section 2: FwdH ================= -->
   <rect x="50" y="490" width="1700" height="380" rx="14" fill="#fbfcfd" stroke="#9fb0bd" stroke-width="1.6" stroke-dasharray="7 5"/>
-  <text x="900" y="526" text-anchor="middle" class="grp">② FwdH —— 块间串行（H 就绪 flag）；块内 C/V 交替 ＋ head 双缓冲 ＋ 预取重叠</text>
+  <text x="900" y="524" text-anchor="middle" class="grp">② FwdH —— 块间仅 H 就绪 flag 串行（逐 head 置位）；块内 C1→V1→C2→V2 相位交替；head 双缓冲 ＋ W/K 预取与 C2 并行</text>
 
   <text x="95" y="623" class="lane">AIC</text>
   <text x="80" y="643" class="lane">(Cube)</text>
   <text x="95" y="738" class="lane">AIV</text>
   <text x="80" y="758" class="lane">(Vector)</text>
 
-  <text x="450" y="556" text-anchor="middle" class="tick">────── chunk c ──────</text>
-  <text x="1070" y="556" text-anchor="middle" class="tick">────────── chunk c+1 ──────────</text>
-  <text x="1540" y="556" text-anchor="middle" class="tick">── chunk c+2 ──</text>
-  <line x1="760" y1="566" x2="760" y2="800" stroke="#cfd8dc" stroke-width="1.2" stroke-dasharray="4 4"/>
-  <line x1="1380" y1="566" x2="1380" y2="800" stroke="#cfd8dc" stroke-width="1.2" stroke-dasharray="4 4"/>
+  <text x="420" y="556" text-anchor="middle" class="tick">────── chunk c ──────</text>
+  <text x="1005" y="556" text-anchor="middle" class="tick">────────── chunk c+1 ──────────</text>
+  <text x="1500" y="556" text-anchor="middle" class="tick">── chunk c+2 ──</text>
+  <line x1="700" y1="566" x2="700" y2="800" stroke="#cfd8dc" stroke-width="1.2" stroke-dasharray="4 4"/>
+  <line x1="1310" y1="566" x2="1310" y2="800" stroke="#cfd8dc" stroke-width="1.2" stroke-dasharray="4 4"/>
 
-  <!-- AIC lane -->
-  <rect x="140" y="585" width="130" height="65" rx="8" fill="#ffe3bd" stroke="#e65100" stroke-width="2"/>
-  <text x="205" y="613" text-anchor="middle" class="blk">C1【C】h0</text>
-  <text x="205" y="635" text-anchor="middle" class="blks">v_work=w·S_c</text>
-  <rect x="270" y="585" width="130" height="65" rx="8" fill="#ffe3bd" stroke="#e65100" stroke-width="2"/>
-  <text x="335" y="613" text-anchor="middle" class="blk">C1【C】h1</text>
-  <text x="335" y="635" text-anchor="middle" class="blks">（双缓冲）</text>
-  <rect x="400" y="585" width="120" height="65" rx="8" fill="#ffe3bd" stroke="#e65100" stroke-width="2"/>
-  <text x="460" y="613" text-anchor="middle" class="blk">C2【C】h0</text>
-  <text x="460" y="635" text-anchor="middle" class="blks">kᵀ·v_update</text>
-  <rect x="520" y="585" width="120" height="65" rx="8" fill="#ffe3bd" stroke="#e65100" stroke-width="2"/>
-  <text x="580" y="613" text-anchor="middle" class="blk">C2【C】h1</text>
-  <rect x="640" y="585" width="120" height="65" rx="8" fill="#fff3e0" stroke="#e65100" stroke-width="1.8" stroke-dasharray="6 4"/>
-  <text x="700" y="613" text-anchor="middle" class="blk">预取</text>
-  <text x="700" y="635" text-anchor="middle" class="blks">W/K(c+1) MTE2</text>
-  <rect x="760" y="585" width="130" height="65" rx="8" fill="#ffe3bd" stroke="#e65100" stroke-width="2"/>
-  <text x="825" y="613" text-anchor="middle" class="blk">C1′【C】</text>
-  <text x="825" y="635" text-anchor="middle" class="blks">c+1 · h0</text>
-  <rect x="890" y="585" width="130" height="65" rx="8" fill="#ffe3bd" stroke="#e65100" stroke-width="2"/>
-  <text x="955" y="613" text-anchor="middle" class="blk">C1′【C】</text>
-  <text x="955" y="635" text-anchor="middle" class="blks">c+1 · h1</text>
-  <rect x="1020" y="585" width="120" height="65" rx="8" fill="#ffe3bd" stroke="#e65100" stroke-width="2"/>
-  <text x="1080" y="613" text-anchor="middle" class="blk">C2′【C】</text>
-  <rect x="1140" y="585" width="120" height="65" rx="8" fill="#ffe3bd" stroke="#e65100" stroke-width="2"/>
-  <text x="1200" y="613" text-anchor="middle" class="blk">C2′【C】</text>
-  <rect x="1260" y="585" width="120" height="65" rx="8" fill="#fff3e0" stroke="#e65100" stroke-width="1.8" stroke-dasharray="6 4"/>
-  <text x="1320" y="613" text-anchor="middle" class="blk">预取</text>
-  <text x="1320" y="635" text-anchor="middle" class="blks">W/K(c+2)</text>
-  <rect x="1380" y="585" width="130" height="65" rx="8" fill="#fff3e0" stroke="#e65100" stroke-width="1.8" stroke-dasharray="6 4"/>
-  <text x="1445" y="613" text-anchor="middle" class="blk">C1″【C】</text>
-  <text x="1445" y="635" text-anchor="middle" class="blks">c+2</text>
-  <rect x="1510" y="585" width="120" height="65" rx="8" fill="#fff3e0" stroke="#e65100" stroke-width="1.8" stroke-dasharray="6 4"/>
-  <text x="1570" y="613" text-anchor="middle" class="blk">C2″【C】</text>
+  <!-- AIC prefetch strips (MTE2 pipe overlaps C2 compute) -->
+  <rect x="425" y="568" width="250" height="18" rx="6" fill="#fff3e0" stroke="#e65100" stroke-width="1.2" stroke-dasharray="5 3"/>
+  <text x="550" y="581" text-anchor="middle" class="tiny" fill="#9c5700">MTE2 预取 W/K(c+1)</text>
+  <rect x="1035" y="568" width="250" height="18" rx="6" fill="#fff3e0" stroke="#e65100" stroke-width="1.2" stroke-dasharray="5 3"/>
+  <text x="1160" y="581" text-anchor="middle" class="tiny" fill="#9c5700">MTE2 预取 W/K(c+2)</text>
 
-  <!-- AIV lane -->
-  <rect x="140" y="700" width="130" height="65" rx="8" fill="#f2f4f6" stroke="#8d9aa5" stroke-width="1.5"/>
-  <text x="205" y="738" text-anchor="middle" class="blks">等 P</text>
-  <rect x="270" y="700" width="120" height="65" rx="8" fill="#cfe3fa" stroke="#12518c" stroke-width="2"/>
-  <text x="330" y="728" text-anchor="middle" class="blk">V1【V】h0</text>
-  <text x="330" y="750" text-anchor="middle" class="blks">u−P 扣回声</text>
-  <rect x="390" y="700" width="120" height="65" rx="8" fill="#cfe3fa" stroke="#12518c" stroke-width="2"/>
-  <text x="450" y="728" text-anchor="middle" class="blk">V1【V】h1</text>
-  <rect x="510" y="700" width="130" height="65" rx="8" fill="#cfe3fa" stroke="#12518c" stroke-width="2"/>
-  <text x="575" y="728" text-anchor="middle" class="blk">V2【V】(c)</text>
-  <text x="575" y="750" text-anchor="middle" class="blks">合并·快照 h/v_new</text>
-  <rect x="640" y="700" width="120" height="65" rx="8" fill="#f2f4f6" stroke="#8d9aa5" stroke-width="1.5"/>
-  <text x="700" y="738" text-anchor="middle" class="blks">等 P′</text>
-  <rect x="760" y="700" width="120" height="65" rx="8" fill="#cfe3fa" stroke="#12518c" stroke-width="2"/>
-  <text x="820" y="728" text-anchor="middle" class="blk">V1′【V】</text>
-  <text x="820" y="750" text-anchor="middle" class="blks">c+1 · h0</text>
-  <rect x="880" y="700" width="120" height="65" rx="8" fill="#cfe3fa" stroke="#12518c" stroke-width="2"/>
-  <text x="940" y="728" text-anchor="middle" class="blk">V1′【V】</text>
-  <text x="940" y="750" text-anchor="middle" class="blks">c+1 · h1</text>
-  <rect x="1000" y="700" width="130" height="65" rx="8" fill="#cfe3fa" stroke="#12518c" stroke-width="2"/>
-  <text x="1065" y="728" text-anchor="middle" class="blk">V2′【V】(c+1)</text>
-  <rect x="1130" y="700" width="130" height="65" rx="8" fill="#f2f4f6" stroke="#8d9aa5" stroke-width="1.5"/>
-  <text x="1195" y="738" text-anchor="middle" class="blks">等 P″</text>
-  <rect x="1260" y="700" width="120" height="65" rx="8" fill="#fff3e0" stroke="#12518c" stroke-width="1.8" stroke-dasharray="6 4"/>
-  <text x="1320" y="728" text-anchor="middle" class="blk">V1″【V】</text>
-  <rect x="1380" y="700" width="130" height="65" rx="8" fill="#fff3e0" stroke="#12518c" stroke-width="1.8" stroke-dasharray="6 4"/>
-  <text x="1445" y="728" text-anchor="middle" class="blk">V2″【V】(c+2)</text>
+  <!-- AIC lane: chunk c -->
+  <rect x="140" y="585" width="140" height="65" rx="8" fill="#ffe3bd" stroke="#e65100" stroke-width="2"/>
+  <text x="210" y="613" text-anchor="middle" class="blk">C1【C】h0</text>
+  <text x="210" y="635" text-anchor="middle" class="blks">P=w·S_c</text>
+  <rect x="280" y="585" width="140" height="65" rx="8" fill="#ffe3bd" stroke="#e65100" stroke-width="2"/>
+  <text x="350" y="613" text-anchor="middle" class="blk">C1【C】h1</text>
+  <text x="350" y="635" text-anchor="middle" class="blks">（双缓冲）</text>
+  <rect x="420" y="585" width="130" height="65" rx="8" fill="#ffe3bd" stroke="#e65100" stroke-width="2"/>
+  <text x="485" y="613" text-anchor="middle" class="blk">C2【C】h0</text>
+  <text x="485" y="635" text-anchor="middle" class="tiny">h_work=kᵀ·v_upd</text>
+  <rect x="550" y="585" width="130" height="65" rx="8" fill="#ffe3bd" stroke="#e65100" stroke-width="2"/>
+  <text x="615" y="613" text-anchor="middle" class="blk">C2【C】h1</text>
+  <rect x="680" y="585" width="40" height="65" rx="8" fill="#f2f4f6" stroke="#8d9aa5" stroke-width="1.5"/>
+  <text x="700" y="622" text-anchor="middle" class="tiny" fill="#78909c">等H</text>
+  <!-- AIC lane: chunk c+1 -->
+  <rect x="720" y="585" width="140" height="65" rx="8" fill="#ffe3bd" stroke="#e65100" stroke-width="2"/>
+  <text x="790" y="613" text-anchor="middle" class="blk">C1′【C】h0</text>
+  <text x="790" y="635" text-anchor="middle" class="blks">c+1</text>
+  <rect x="860" y="585" width="30" height="65" rx="8" fill="#f2f4f6" stroke="#8d9aa5" stroke-width="1.5"/>
+  <text x="875" y="622" text-anchor="middle" class="tiny" fill="#78909c">等H</text>
+  <rect x="890" y="585" width="140" height="65" rx="8" fill="#ffe3bd" stroke="#e65100" stroke-width="2"/>
+  <text x="960" y="613" text-anchor="middle" class="blk">C1′【C】h1</text>
+  <text x="960" y="635" text-anchor="middle" class="blks">c+1</text>
+  <rect x="1030" y="585" width="130" height="65" rx="8" fill="#ffe3bd" stroke="#e65100" stroke-width="2"/>
+  <text x="1095" y="613" text-anchor="middle" class="blk">C2′【C】h0</text>
+  <rect x="1160" y="585" width="130" height="65" rx="8" fill="#ffe3bd" stroke="#e65100" stroke-width="2"/>
+  <text x="1225" y="613" text-anchor="middle" class="blk">C2′【C】h1</text>
+  <rect x="1290" y="585" width="40" height="65" rx="8" fill="#f2f4f6" stroke="#8d9aa5" stroke-width="1.5"/>
+  <text x="1310" y="622" text-anchor="middle" class="tiny" fill="#78909c">等H</text>
+  <!-- AIC lane: chunk c+2 (dashed) -->
+  <rect x="1330" y="585" width="140" height="65" rx="8" fill="#fff3e0" stroke="#e65100" stroke-width="1.8" stroke-dasharray="6 4"/>
+  <text x="1400" y="613" text-anchor="middle" class="blk">C1″【C】h0</text>
+  <text x="1400" y="635" text-anchor="middle" class="blks">c+2</text>
+  <rect x="1470" y="585" width="130" height="65" rx="8" fill="#fff3e0" stroke="#e65100" stroke-width="1.8" stroke-dasharray="6 4"/>
+  <text x="1535" y="613" text-anchor="middle" class="blk">C2″【C】</text>
+  <text x="1620" y="613" class="blks" fill="#90a4ae">……</text>
 
-  <!-- H_READY dependency -->
-  <path d="M 575 765 L 575 820 L 825 820 L 825 652" fill="none" stroke="#c62828" stroke-width="2.2" stroke-dasharray="8 5" marker-end="url(#arR)"/>
-  <text x="845" y="826" class="dep">H_READY：块 c 的 V2 状态就绪后，块 c+1 的 C1′ 才能开算 —— 块间串行点</text>
+  <!-- AIV lane: chunk c -->
+  <rect x="140" y="700" width="140" height="65" rx="8" fill="#f2f4f6" stroke="#8d9aa5" stroke-width="1.5"/>
+  <text x="210" y="728" text-anchor="middle" class="blks">等 P</text>
+  <text x="210" y="750" text-anchor="middle" class="tiny" fill="#78909c">(C1 h0)</text>
+  <rect x="280" y="700" width="140" height="65" rx="8" fill="#cfe3fa" stroke="#12518c" stroke-width="2"/>
+  <text x="350" y="728" text-anchor="middle" class="blk">V1【V】h0</text>
+  <text x="350" y="750" text-anchor="middle" class="tiny">v_upd=(u−P)⊙衰减</text>
+  <rect x="420" y="700" width="130" height="65" rx="8" fill="#cfe3fa" stroke="#12518c" stroke-width="2"/>
+  <text x="485" y="728" text-anchor="middle" class="blk">V1【V】h1</text>
+  <rect x="550" y="700" width="170" height="65" rx="8" fill="#cfe3fa" stroke="#12518c" stroke-width="2"/>
+  <text x="635" y="728" text-anchor="middle" class="blk">V2【V】h0</text>
+  <text x="635" y="750" text-anchor="middle" class="blks">S_c+1 逐头衰减合并</text>
+  <rect x="720" y="700" width="170" height="65" rx="8" fill="#cfe3fa" stroke="#12518c" stroke-width="2"/>
+  <text x="805" y="728" text-anchor="middle" class="blk">V2【V】h1</text>
+  <text x="805" y="750" text-anchor="middle" class="tiny">快照 h/v_new·置 H flag</text>
+  <!-- AIV lane: chunk c+1 -->
+  <rect x="890" y="700" width="140" height="65" rx="8" fill="#cfe3fa" stroke="#12518c" stroke-width="2"/>
+  <text x="960" y="728" text-anchor="middle" class="blk">V1′【V】h0</text>
+  <text x="960" y="750" text-anchor="middle" class="blks">c+1</text>
+  <rect x="1030" y="700" width="130" height="65" rx="8" fill="#cfe3fa" stroke="#12518c" stroke-width="2"/>
+  <text x="1095" y="728" text-anchor="middle" class="blk">V1′【V】h1</text>
+  <rect x="1160" y="700" width="170" height="65" rx="8" fill="#cfe3fa" stroke="#12518c" stroke-width="2"/>
+  <text x="1245" y="728" text-anchor="middle" class="blk">V2′【V】h0</text>
+  <rect x="1330" y="700" width="170" height="65" rx="8" fill="#cfe3fa" stroke="#12518c" stroke-width="2"/>
+  <text x="1415" y="728" text-anchor="middle" class="blk">V2′【V】h1</text>
+  <!-- AIV lane: chunk c+2 (dashed) -->
+  <rect x="1500" y="700" width="130" height="65" rx="8" fill="#fff3e0" stroke="#12518c" stroke-width="1.8" stroke-dasharray="6 4"/>
+  <text x="1565" y="728" text-anchor="middle" class="blk">V1″【V】</text>
+  <text x="1565" y="750" text-anchor="middle" class="blks">c+2</text>
+  <text x="1650" y="728" class="blks" fill="#90a4ae">……</text>
 
-  <text x="140" y="858" class="ann" fill="#546e7a">同块内 C1→V1→C2→V2 严格串行（跨核 flag接力）｜head 0/1 双 local slot 双缓冲｜AIC 预取下一块与当前计算重叠｜不同序列/头 → 28 组核全并行</text>
+  <!-- relay arrows: block boundary == flag position -->
+  <line x1="280" y1="652" x2="280" y2="698" stroke="#c62828" stroke-width="2" stroke-dasharray="7 4" marker-end="url(#arR)"/>
+  <text x="286" y="678" class="dep">P h0</text>
+  <line x1="414" y1="652" x2="414" y2="698" stroke="#c62828" stroke-width="2" stroke-dasharray="7 4" marker-end="url(#arR)"/>
+  <text x="408" y="678" text-anchor="end" class="dep">P h1</text>
+  <line x1="428" y1="698" x2="428" y2="652" stroke="#c62828" stroke-width="2" stroke-dasharray="7 4" marker-end="url(#arR)"/>
+  <text x="434" y="678" class="dep">v_upd h0</text>
+  <line x1="550" y1="698" x2="550" y2="652" stroke="#c62828" stroke-width="2" stroke-dasharray="7 4" marker-end="url(#arR)"/>
+  <text x="556" y="678" class="dep">v_upd h1</text>
+  <line x1="720" y1="698" x2="720" y2="652" stroke="#c62828" stroke-width="2.2" stroke-dasharray="8 5" marker-end="url(#arR)"/>
+  <text x="726" y="678" class="dep">H flag h0</text>
+  <line x1="862" y1="652" x2="888" y2="698" stroke="#c62828" stroke-width="2" stroke-dasharray="7 4" marker-end="url(#arR)"/>
+  <text x="856" y="678" text-anchor="end" class="dep">P′ h0</text>
+  <line x1="890" y1="698" x2="890" y2="652" stroke="#c62828" stroke-width="2.2" stroke-dasharray="8 5" marker-end="url(#arR)"/>
+  <text x="896" y="678" class="dep">H flag h1</text>
+  <line x1="1030" y1="652" x2="1030" y2="698" stroke="#c62828" stroke-width="2" stroke-dasharray="7 4" marker-end="url(#arR)"/>
+  <text x="1024" y="678" text-anchor="end" class="dep">P′ h1</text>
+
+  <text x="140" y="838" class="ann" fill="#546e7a">同块内 C1→V1→C2→V2 逐 head flag 接力；H 就绪 flag 逐 head 置位——C1′(c+1,h0) 在 V2(c,h0) 完成后即开算，与 V2(c,h1) 并行（跨块 head 级重叠）</text>
+  <text x="140" y="864" class="ann" fill="#546e7a">W/K 预取与 C2 并行（MTE2），flag 一到零延迟衔接｜S 状态驻留 AIV UB，首块读 initial_state、末块写 final_state｜RIGHT_FREE 回压管跨块缓冲复用</text>
 
   <!-- ================= Section 3: FwdO ================= -->
   <rect x="50" y="900" width="1700" height="330" rx="14" fill="#fbfcfd" stroke="#9fb0bd" stroke-width="1.6" stroke-dasharray="7 5"/>
-  <text x="900" y="936" text-anchor="middle" class="grp">③ FwdO —— AIV 流水 S1→S3→S5 依次，AIC 流水 C1/C3 插空；A′/V ping-pong，AIC 预取领先一个 V head</text>
+  <text x="900" y="934" text-anchor="middle" class="grp">③ FwdO —— 每 chunk 相位式：V1（全部 head）与 C1 并行；V2↔C3 逐 head 接力；C1′ 等上组 V3 收尾（组边界串行点）；v_new 预取领先一个 V head</text>
 
   <text x="95" y="1033" class="lane">AIC</text>
   <text x="80" y="1053" class="lane">(Cube)</text>
   <text x="95" y="1148" class="lane">AIV</text>
   <text x="80" y="1168" class="lane">(Vector)</text>
 
-  <text x="520" y="966" text-anchor="middle" class="tick">──── head round n ────</text>
-  <text x="1300" y="966" text-anchor="middle" class="tick">──── head round n+1 ────</text>
-  <line x1="900" y1="976" x2="900" y2="1190" stroke="#cfd8dc" stroke-width="1.2" stroke-dasharray="4 4"/>
+  <text x="560" y="966" text-anchor="middle" class="tick">────── chunk c（本组 head h0/h1）──────</text>
+  <text x="1330" y="966" text-anchor="middle" class="tick">────────── chunk c+1 ──────────</text>
+  <line x1="980" y1="976" x2="980" y2="1190" stroke="#cfd8dc" stroke-width="1.2" stroke-dasharray="4 4"/>
 
-  <!-- AIC lane -->
-  <rect x="140" y="995" width="150" height="65" rx="8" fill="#f2f4f6" stroke="#8d9aa5" stroke-width="1.5"/>
-  <text x="215" y="1033" text-anchor="middle" class="blks">等 gate</text>
-  <rect x="290" y="995" width="210" height="65" rx="8" fill="#ffe3bd" stroke="#e65100" stroke-width="2"/>
-  <text x="395" y="1023" text-anchor="middle" class="blk">C1【C】双矩阵乘</text>
-  <text x="395" y="1045" text-anchor="middle" class="blks">attn=q·kᵀ ＋ 块间项 q·h_快照</text>
-  <rect x="500" y="995" width="110" height="65" rx="8" fill="#f2f4f6" stroke="#8d9aa5" stroke-width="1.5"/>
-  <text x="555" y="1033" text-anchor="middle" class="blks">等 A′</text>
-  <rect x="610" y="995" width="150" height="65" rx="8" fill="#ffe3bd" stroke="#e65100" stroke-width="2"/>
-  <text x="685" y="1023" text-anchor="middle" class="blk">C3【C】</text>
-  <text x="685" y="1045" text-anchor="middle" class="blks">v_part=A′·v_new</text>
-  <rect x="760" y="995" width="130" height="65" rx="8" fill="#fff3e0" stroke="#e65100" stroke-width="1.8" stroke-dasharray="6 4"/>
-  <text x="825" y="1023" text-anchor="middle" class="blk">预取</text>
-  <text x="825" y="1045" text-anchor="middle" class="blks">下一 V head</text>
-  <rect x="900" y="995" width="200" height="65" rx="8" fill="#ffe3bd" stroke="#e65100" stroke-width="2"/>
-  <text x="1000" y="1023" text-anchor="middle" class="blk">C1′【C】双矩阵乘</text>
-  <text x="1000" y="1045" text-anchor="middle" class="blks">（L0/L1 stream slot 轮转）</text>
-  <rect x="1100" y="995" width="110" height="65" rx="8" fill="#f2f4f6" stroke="#8d9aa5" stroke-width="1.5"/>
-  <text x="1155" y="1033" text-anchor="middle" class="blks">等 A′′</text>
-  <rect x="1210" y="995" width="150" height="65" rx="8" fill="#ffe3bd" stroke="#e65100" stroke-width="2"/>
-  <text x="1285" y="1023" text-anchor="middle" class="blk">C3′【C】</text>
-  <rect x="1360" y="995" width="120" height="65" rx="8" fill="#fff3e0" stroke="#e65100" stroke-width="1.8" stroke-dasharray="6 4"/>
-  <text x="1420" y="1033" text-anchor="middle" class="blks">预取……</text>
+  <!-- AIC lane: chunk c -->
+  <rect x="140" y="995" width="200" height="65" rx="8" fill="#ffe3bd" stroke="#e65100" stroke-width="2"/>
+  <text x="240" y="1023" text-anchor="middle" class="blk">C1【C】h0</text>
+  <text x="240" y="1045" text-anchor="middle" class="tiny">attn=q·kᵀ＋O_s=q·h_快照</text>
+  <rect x="340" y="995" width="200" height="65" rx="8" fill="#ffe3bd" stroke="#e65100" stroke-width="2"/>
+  <text x="440" y="1023" text-anchor="middle" class="blk">C1【C】h1</text>
+  <text x="440" y="1045" text-anchor="middle" class="blks">（双矩阵乘）</text>
+  <rect x="540" y="995" width="150" height="65" rx="8" fill="#ffe3bd" stroke="#e65100" stroke-width="2"/>
+  <text x="615" y="1023" text-anchor="middle" class="blk">C3【C】h0</text>
+  <text x="615" y="1045" text-anchor="middle" class="blks">O_l=A′·v_new</text>
+  <rect x="690" y="995" width="150" height="65" rx="8" fill="#ffe3bd" stroke="#e65100" stroke-width="2"/>
+  <text x="765" y="1023" text-anchor="middle" class="blk">C3【C】h1</text>
+  <rect x="840" y="995" width="140" height="65" rx="8" fill="#f2f4f6" stroke="#8d9aa5" stroke-width="1.5"/>
+  <text x="910" y="1023" text-anchor="middle" class="blks">等 V3 组收尾</text>
+  <text x="910" y="1045" text-anchor="middle" class="tiny" fill="#78909c">（缓冲复用回压）</text>
+  <!-- AIC lane: chunk c+1 -->
+  <rect x="980" y="995" width="200" height="65" rx="8" fill="#ffe3bd" stroke="#e65100" stroke-width="2"/>
+  <text x="1080" y="1023" text-anchor="middle" class="blk">C1′【C】h0</text>
+  <text x="1080" y="1045" text-anchor="middle" class="blks">c+1</text>
+  <rect x="1180" y="995" width="200" height="65" rx="8" fill="#ffe3bd" stroke="#e65100" stroke-width="2"/>
+  <text x="1280" y="1023" text-anchor="middle" class="blk">C1′【C】h1</text>
+  <rect x="1380" y="995" width="150" height="65" rx="8" fill="#ffe3bd" stroke="#e65100" stroke-width="2"/>
+  <text x="1455" y="1023" text-anchor="middle" class="blk">C3′【C】h0</text>
+  <rect x="1530" y="995" width="150" height="65" rx="8" fill="#fff3e0" stroke="#e65100" stroke-width="1.8" stroke-dasharray="6 4"/>
+  <text x="1605" y="1023" text-anchor="middle" class="blk">C3′【C】h1</text>
+  <text x="1695" y="1023" class="blks" fill="#90a4ae">……</text>
 
-  <!-- AIV lane -->
-  <rect x="140" y="1110" width="150" height="65" rx="8" fill="#cfe3fa" stroke="#12518c" stroke-width="2"/>
-  <text x="215" y="1138" text-anchor="middle" class="blk">V1【V】</text>
-  <text x="215" y="1160" text-anchor="middle" class="blks">gate 因子 exp*(g)</text>
-  <rect x="290" y="1110" width="110" height="65" rx="8" fill="#f2f4f6" stroke="#8d9aa5" stroke-width="1.5"/>
-  <text x="345" y="1148" text-anchor="middle" class="blks">等 attn</text>
-  <rect x="400" y="1110" width="170" height="65" rx="8" fill="#cfe3fa" stroke="#12518c" stroke-width="2"/>
-  <text x="485" y="1138" text-anchor="middle" class="blk">V2【V】掩码＋衰减</text>
-  <text x="485" y="1160" text-anchor="middle" class="blks" font-size="12">tril → A′；O_s′=exp(g)·q·h</text>
-  <rect x="570" y="1110" width="120" height="65" rx="8" fill="#f2f4f6" stroke="#8d9aa5" stroke-width="1.5"/>
-  <text x="630" y="1148" text-anchor="middle" class="blks">等 v_part</text>
-  <rect x="690" y="1110" width="170" height="65" rx="8" fill="#cfe3fa" stroke="#12518c" stroke-width="2"/>
-  <text x="775" y="1138" text-anchor="middle" class="blk">V3【V】融合输出</text>
-  <text x="775" y="1160" text-anchor="middle" class="blks" font-size="12">o=scale·(O_s′+v_part)</text>
-  <rect x="900" y="1110" width="150" height="65" rx="8" fill="#cfe3fa" stroke="#12518c" stroke-width="2"/>
-  <text x="975" y="1138" text-anchor="middle" class="blk">V1′【V】</text>
-  <text x="975" y="1160" text-anchor="middle" class="blks">round n+1</text>
-  <rect x="1090" y="1110" width="170" height="65" rx="8" fill="#cfe3fa" stroke="#12518c" stroke-width="2"/>
-  <text x="1175" y="1138" text-anchor="middle" class="blk">V2′【V】</text>
-  <rect x="1300" y="1110" width="160" height="65" rx="8" fill="#cfe3fa" stroke="#12518c" stroke-width="2"/>
-  <text x="1380" y="1138" text-anchor="middle" class="blk">V3′【V】</text>
+  <!-- AIV lane: chunk c -->
+  <rect x="140" y="1110" width="120" height="65" rx="8" fill="#cfe3fa" stroke="#12518c" stroke-width="2"/>
+  <text x="200" y="1138" text-anchor="middle" class="blk">V1【V】h0</text>
+  <text x="200" y="1160" text-anchor="middle" class="tiny">exp*(g) 因子</text>
+  <rect x="260" y="1110" width="120" height="65" rx="8" fill="#cfe3fa" stroke="#12518c" stroke-width="2"/>
+  <text x="320" y="1138" text-anchor="middle" class="blk">V1【V】h1</text>
+  <rect x="380" y="1110" width="160" height="65" rx="8" fill="#cfe3fa" stroke="#12518c" stroke-width="2"/>
+  <text x="460" y="1138" text-anchor="middle" class="blk">V2【V】h0</text>
+  <text x="460" y="1160" text-anchor="middle" class="blks">tril/衰减→A′</text>
+  <rect x="540" y="1110" width="150" height="65" rx="8" fill="#cfe3fa" stroke="#12518c" stroke-width="2"/>
+  <text x="615" y="1138" text-anchor="middle" class="blk">V2【V】h1</text>
+  <text x="615" y="1160" text-anchor="middle" class="tiny">O_s′=exp(g)·O_s</text>
+  <rect x="690" y="1110" width="150" height="65" rx="8" fill="#cfe3fa" stroke="#12518c" stroke-width="2"/>
+  <text x="765" y="1138" text-anchor="middle" class="blk">V3【V】h0</text>
+  <text x="765" y="1160" text-anchor="middle" class="tiny">o=scale·(O_s′+O_l)</text>
+  <rect x="840" y="1110" width="140" height="65" rx="8" fill="#cfe3fa" stroke="#12518c" stroke-width="2"/>
+  <text x="910" y="1138" text-anchor="middle" class="blk">V3【V】h1</text>
+  <text x="910" y="1160" text-anchor="middle" class="tiny">BF16 写回 GM</text>
+  <!-- AIV lane: chunk c+1 -->
+  <rect x="980" y="1110" width="120" height="65" rx="8" fill="#cfe3fa" stroke="#12518c" stroke-width="2"/>
+  <text x="1040" y="1138" text-anchor="middle" class="blk">V1′【V】h0</text>
+  <text x="1040" y="1160" text-anchor="middle" class="blks">c+1</text>
+  <rect x="1100" y="1110" width="120" height="65" rx="8" fill="#cfe3fa" stroke="#12518c" stroke-width="2"/>
+  <text x="1160" y="1138" text-anchor="middle" class="blk">V1′【V】h1</text>
+  <rect x="1220" y="1110" width="160" height="65" rx="8" fill="#cfe3fa" stroke="#12518c" stroke-width="2"/>
+  <text x="1300" y="1138" text-anchor="middle" class="blk">V2′【V】h0</text>
+  <rect x="1380" y="1110" width="150" height="65" rx="8" fill="#cfe3fa" stroke="#12518c" stroke-width="2"/>
+  <text x="1455" y="1138" text-anchor="middle" class="blk">V2′【V】h1</text>
+  <rect x="1530" y="1110" width="140" height="65" rx="8" fill="#fff3e0" stroke="#12518c" stroke-width="1.8" stroke-dasharray="6 4"/>
+  <text x="1600" y="1138" text-anchor="middle" class="blk">V3′【V】h0</text>
+  <text x="1690" y="1138" class="blks" fill="#90a4ae">……</text>
 
   <!-- relay arrows -->
-  <line x1="330" y1="1110" x2="330" y2="1062" stroke="#c62828" stroke-width="2" stroke-dasharray="7 4" marker-end="url(#arR)"/>
-  <line x1="455" y1="1062" x2="455" y2="1108" stroke="#c62828" stroke-width="2" stroke-dasharray="7 4" marker-end="url(#arR)"/>
-  <line x1="660" y1="1110" x2="660" y2="1062" stroke="#c62828" stroke-width="2" stroke-dasharray="7 4" marker-end="url(#arR)"/>
-  <line x1="740" y1="1062" x2="740" y2="1108" stroke="#c62828" stroke-width="2" stroke-dasharray="7 4" marker-end="url(#arR)"/>
-  <text x="880" y="1092" class="dep">每次 C↔V 接力都过 GM workspace ＋ flag（A5：C 的结果 Fixpipe 直写 AIV UB，省一次 GM 往返）</text>
+  <line x1="380" y1="1062" x2="380" y2="1108" stroke="#c62828" stroke-width="2" stroke-dasharray="7 4" marker-end="url(#arR)"/>
+  <text x="386" y="1090" class="dep">attn h0</text>
+  <line x1="534" y1="1062" x2="534" y2="1108" stroke="#c62828" stroke-width="2" stroke-dasharray="7 4" marker-end="url(#arR)"/>
+  <text x="528" y="1090" text-anchor="end" class="dep">attn h1</text>
+  <line x1="548" y1="1108" x2="548" y2="1062" stroke="#c62828" stroke-width="2" stroke-dasharray="7 4" marker-end="url(#arR)"/>
+  <text x="554" y="1090" class="dep">A′ h0</text>
+  <line x1="684" y1="1108" x2="684" y2="1062" stroke="#c62828" stroke-width="2" stroke-dasharray="7 4" marker-end="url(#arR)"/>
+  <text x="678" y="1090" text-anchor="end" class="dep">A′ h1</text>
+  <line x1="698" y1="1062" x2="698" y2="1108" stroke="#c62828" stroke-width="2" stroke-dasharray="7 4" marker-end="url(#arR)"/>
+  <text x="704" y="1090" class="dep">v_part h0</text>
+  <line x1="840" y1="1062" x2="840" y2="1108" stroke="#c62828" stroke-width="2" stroke-dasharray="7 4" marker-end="url(#arR)"/>
+  <text x="846" y="1090" class="dep">v_part h1</text>
+  <line x1="980" y1="1108" x2="980" y2="1062" stroke="#c62828" stroke-width="2.2" stroke-dasharray="8 5" marker-end="url(#arR)"/>
+  <text x="986" y="1090" class="dep">V3 组完成</text>
+  <text x="1400" y="1090" class="tick">（c+1 起同理，箭头略）</text>
 
-  <text x="140" y="1205" class="ann" fill="#546e7a">o = 块间项（查 FwdH 快照 h，带衰减）＋ 块内项（对净写入 u 的因果注意力）——矩阵乘全在 AIC，掩码/指数/融合全在 AIV</text>
+  <!-- V prefetch strip (below AIV lane, one head ahead) -->
+  <rect x="545" y="1183" width="290" height="18" rx="6" fill="#fff3e0" stroke="#e65100" stroke-width="1.2" stroke-dasharray="5 3"/>
+  <text x="690" y="1196" text-anchor="middle" class="tiny" fill="#9c5700">MTE2 预取 v_new（领先一个 V head 进 L1）</text>
+
+  <text x="140" y="1222" class="ann" fill="#546e7a">o＝块间项（查 FwdH 快照 h，带衰减）＋块内项（对净写入 u 的因果注意力）｜矩阵乘全在 AIC，掩码/指数/融合全在 AIV｜C↔V 接力过 GM＋flag（A5：Fixpipe 直写 AIV UB）｜组边界等 V3 收尾是串行点</text>
 
   <!-- ================= summary ================= -->
   <rect x="50" y="1250" width="1700" height="170" rx="14" fill="#fffbe6" stroke="#d4a017" stroke-width="1.8"/>
   <text x="900" y="1284" text-anchor="middle" class="grp">串行 / 并行一览</text>
   <text x="90" y="1316" class="ann" font-weight="bold">串行：</text>
-  <text x="160" y="1316" class="ann">① kernel 间（Prepare → FwdH → FwdO，GM 接力）　② 同一序列的 chunk 间（FwdH 状态递推，H 就绪 flag）</text>
-  <text x="160" y="1342" class="ann">③ 同一条数据链上的 C→V→C→V 交替（数据依赖，跨核 flag 握手，一方必须等另一方置位）</text>
+  <text x="160" y="1316" class="ann">① kernel 间（Prepare → FwdH → FwdO，GM 接力）　② 同一序列的 chunk 间（FwdH 状态递推，H 就绪 flag 逐 head）</text>
+  <text x="160" y="1342" class="ann">③ 同一条数据链上的 C→V→C→V 交替（数据依赖，跨核 flag 握手，一方必须等另一方置位）　④ FwdO 组边界（C1′ 等上组 V3 收尾）</text>
   <text x="90" y="1374" class="ann" font-weight="bold">并行：</text>
   <text x="160" y="1374" class="ann">① 不同序列 / 不同 value head → 28 组 AIC+AIV 核全并行　② 同一 kernel 内 AIC / AIV 两条硬件流水</text>
-  <text x="160" y="1400" class="ann">③ 预取与计算重叠（W/K lookahead、A′/V ping-pong、下一包 S1′）　④ AIV0/AIV1 双 head 双缓冲</text>
+  <text x="160" y="1400" class="ann">③ 预取与计算重叠（W/K lookahead、v_new 领先一个 head、下一包 S1′）　④ AIV0/AIV1 双 head 双缓冲</text>
 </svg>

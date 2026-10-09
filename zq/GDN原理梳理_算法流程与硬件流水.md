@@ -82,7 +82,7 @@
 
 **串行/并行规则**（详见第 4 节流水解释）：
 
-- 串行：kernel 间；同序列块间（H 就绪 flag）；同一条数据链上的 C→V→C→V（flag 握手）；
+- 串行：kernel 间；同序列块间（H 就绪 flag，逐 head）；同一条数据链上的 C→V→C→V（flag 握手）；FwdO 组边界（C1′ 等上组 V3 收尾）；
 - 并行：不同序列/头跨核组；kernel 内 Cube/Vector 两条流水；预取与计算重叠；AIV0/AIV1 双 head 双缓冲。
 
 ---
@@ -95,9 +95,9 @@
 
 **三段流水的要点**：
 
-1. **Prepare**：S6（V）与 S4/S5（C）两条流水同时开算；**包间重叠**——包 N 的 S5/S7 在 AIC 上跑时，包 N+1 的 S1 已在 AIV 上开跑（k′ 与 −L 复用 L1 地址，需等包 N 的 S4 用完），包与包之间没有相位空泡。
-2. **FwdH**：块间串行是唯一硬约束（V2(c) 置 H 就绪 flag 后 C1(c+1) 才能开算）。三个填空手段——**head 双缓冲**（AIV0 管 head 0/2、AIV1 管 1/3，L0 双 bank 轮转）；**lookahead 预取**（AIC 算当前块 C2 时 MTE2 已在搬下一块 W/K，flag 一到零延迟开算）；**状态驻留**（S 全程住 AIV UB，仅首块读 initial_state、末块写 final_state，中间零 GM）。
-3. **FwdO**：AIV 的 V1→V2→V3 按 head round 整轮推进，AIC 的 C1/C3 插空；C3 预取**领先一个 V head**，操作数（A′/v_new 都是 AIV 刚产出的热数据）提前进 L1。
+1. **Prepare**：S6（V）与 S4/S5（C）两条流水同时开算；**包间无全局屏障**——AIC 的 S2′ 紧接 S7 开跑，包 N+1 的 S1′ 在 AIV 上与包 N 的 S5 尾段/S7 重叠（k̂ 与 −L 复用 L1 地址，需等包 N 的 S4 用完）。S7 的 W/U 经 Fixpipe 落 AIV UB 后**不立即回写**，推迟到下一包 S3′ 完成后的窗口才排空到 GM；AIV 在包边界等下一包 KKT′ 是主要的局部等待。
+2. **FwdH**：块间串行是唯一硬约束（V2(c) 置 H 就绪 flag 后 C1(c+1) 才能开算；flag 逐 head 置位——C1(c+1,h0) 只等 V2(c,h0)，跨块仍有 head 级重叠）。三个填空手段——**head 双缓冲**（AIV0 管 head 0/2、AIV1 管 1/3，L0 双 bank 轮转）；**lookahead 预取**（AIC 算当前块 C2 时 MTE2 已在搬下一块 W/K，flag 一到零延迟开算）；**状态驻留**（S 全程住 AIV UB，仅首块读 initial_state、末块写 final_state，中间零 GM）。
+3. **FwdO**：每 chunk 相位式推进——AIV 先算完本组全部 head 的 V1（gate 因子），与 AIC 的 C1（双矩阵乘）**并行**（C1 只等预取事件，不等 V1）；随后 V2↔C3 逐 head 接力（attn→A′→v_part），V3 融合收尾；C3 的 v_new 预取**领先一个 V head**，操作数（A′/v_new 都是 AIV 刚产出的热数据）提前进 L1。组边界是串行点：下一组的 C1′ 要等本组 V3 全部收尾（缓冲复用回压）。
 
 **图外的两层并行**：① 核组间——host 把 (序列， value head) 展平成 head task 均分给 28 组核，不同序列/头全并行；② **H/O 块级流水**（perf 分支）——16 组生产者跑 FwdH + 12 组消费者跑 FwdO 同时开工，FwdH 每完成一个 (块， 头) 用 IBSet 原子置位，FwdO 的消费任务 IBWait 自旋等对应槽位，前面的块还在 FwdH 手里时后面的块已在 FwdO 被消化，消掉了全局屏障的空泡。
 
