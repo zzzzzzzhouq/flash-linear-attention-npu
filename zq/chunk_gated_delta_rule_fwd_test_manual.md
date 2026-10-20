@@ -67,7 +67,7 @@ atk --version && which atk && pip3 show atk 2>/dev/null | head -5
 
 精度用小 shape 是**组合覆盖**（dtype × V 维度 × chunk × 定长/变长 × 状态），性能必须用真实模型规模——两边的用例文件不同，**精度 6 条、性能 2 条是设计如此，不是漏跑**。
 
-统一入口（**本手册只用到 `-scope=performance`**；精度走 §4.1 的专用三路脚本，不走这个入口）：
+统一入口（**本手册只用到 `-scope=performance`**；精度走 §4 的专用三路脚本——§4.1 冒烟、§4.5 正式，不走这个入口）：
 
 ```bash
 bash tests/atk/run_test_cpu.sh -op=chunk_gated_delta_rule_fwd -npu_device_id=0 -scope=performance --soc=ascend950
@@ -192,6 +192,8 @@ print('shim appended')
 ---
 
 ## 4. 精度测试
+
+> 两节的分工：**§4.1 是冒烟**（6 条小 shape，先确认三路链路和落盘通），**§4.5 是正式结论**（500 条冻结矩阵）。两者用的是同一个三路脚本，只是用例文件不同；对外报"精度通过"以 §4.5 为准。
 
 ### 4.1 跑 MSS 冒烟
 
