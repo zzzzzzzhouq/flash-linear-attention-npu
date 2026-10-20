@@ -378,6 +378,36 @@ grep -c "register_with_key" tests/atk/chunk_gated_delta_rule_fwd/executor_chunk_
 python3 -c "import json; d=json.load(open('tests/atk/chunk_gated_delta_rule_fwd/atk_chunk_gated_delta_rule_fwd_perf.json')); print([i['range_values'] for c in d for i in c['inputs'] if i['name']=='g'])"   # 期望 [[-1, 0], [-1, 0]]
 ```
 
+### 6.1 角色合同失败排查
+
+`validate_runtime_roles.py` 只核对日志里有没有**每个 case × 3 个角色**的初始化打点（`[gdn-double-atk] case=N role=dut|benchmark|golden`）。打点在 `init_by_input_data` 里，所以**缺行 = 该任务在初始化阶段就没了**，不是精度算错。先看 `runtime_role_contract.json` 的 `failures` 字段，再对症下药：
+
+| 报错形态 | 含义 | 常见根因 | 处理 |
+|---|---|---|---|
+| `role_count=14 != 18` | 6 case × 3 角色，缺 4 行 | 六算子链（benchmark）崩溃，ATK 连带撕掉同 case 任务组，DUT 角色行缺失 | 查 §3.1（`bnsd`）与 §3.2（g≤0）补丁是否生效；在 `atk_task.log` 里找第一个 Traceback |
+| 缺的角色全是 `golden` | CPU FP64 任务没起来 | CPU 内存不足 / 并发过高 | 降并发重跑：`GDN_ATK_MAX_TASK=2`，或加 `GDN_ATK_SINGLE_PROCESS=1` |
+| 缺的角色是 `dut` | 融合算子初始化失败 | `fla_npu` 缺六 ACLNN 接口、`cu_seqlens` 契约不符、node 名不对 | 看 log 里 executor 抛的 RuntimeError（`run_npu`/`build_inputs` 的报错会原样出现） |
+| `case=X roles=['dut','dut']` | 同一角色重复 | 结果目录复用或断点续跑，旧日志混入 | 用新时间戳目录重跑；不要手设 `GDN_ATK_RESULT_DIR` 指向旧目录 |
+| `case_count=K != N` | 整组 case 缺失 | 该 case 定义非法（dense 与 varlen 冲突、`cu_seqlens` 不闭合、dtype 不支持） | 用 `ACCURACY_START/END` 单跑该 case，看 init 异常 |
+
+角色行是 init 时打的，所以**"执行中崩"不会导致缺行**；缺行一定是任务没初始化或整组被 ATK 拿掉——这也是为什么先查初始化异常，而不是先怀疑算子精度。
+
+**单 case 复现（迭代最快）**：
+
+```bash
+ACCURACY_START=3 ACCURACY_END=4 GDN_ATK_CASE_JSON="$PWD/tests/atk/chunk_gated_delta_rule_fwd/atk_chunk_gated_delta_rule_fwd_mss.json" bash tests/atk/chunk_gated_delta_rule_fwd/scripts/run_double_benchmark.sh 0
+```
+
+`ACCURACY_START/END` 是 JSON 里的 case 序号（0 基，左闭右开），脚本会自动把 `expected_cases` 调成对应条数，不会因"跑了子集"误报合同失败。
+
+**一次性拿到合同细节和真凶**：
+
+```bash
+d=$(ls -td tests/atk/chunk_gated_delta_rule_fwd/atk_output/double_benchmark/*/ | head -1); cat "$d/runtime_role_contract.json"; grep -nE "Traceback|RuntimeError|ValueError|NaN|Inf|node.name|角色合同" "$d/atk_task.log" | head -40
+```
+
+两个"不要"：① 不要跳过合同校验求"通过"——它防的正是"ATK 返回 0 但三路没跑全"的假通过；② `summary.json` 里 `execution_failed: 6` 是 stub 比较器的**预期**记法（§4.1），不是角色合同失败。
+
 ---
 
 ## 7. 已发现问题清单（建议上报）
