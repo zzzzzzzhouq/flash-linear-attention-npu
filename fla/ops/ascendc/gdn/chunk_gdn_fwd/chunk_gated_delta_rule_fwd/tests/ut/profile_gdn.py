@@ -142,6 +142,7 @@ def main():
     write_raw(raw_path, timer.cpu().tolist())
     print(f"[INFO] raw -> {raw_path}")
 
+    combined_events = []
     for slice_name in ("prepare", "fwd_h", "fwd_o"):
         slice_index = parse_timer_csv.resolve_slice(slice_name)
         parsed_path = out_dir / f"rank_{args.rank}_{slice_name}_parsed.csv"
@@ -156,10 +157,24 @@ def main():
             events = trace_parser.generate_trace_json(parsed_path, args.rank, base_cycle,
                                                       args.cycles_per_us, True)
             trace_path = out_dir / f"rank_{args.rank}_{slice_name}.json"
-            trace_path.write_text(json.dumps(events, ensure_ascii=False, indent=2), encoding="utf-8")
+            trace_path.write_text(
+                json.dumps({"traceEvents": events, "displayTimeUnit": "us"},
+                           ensure_ascii=False, indent=2), encoding="utf-8")
             print(f"[INFO] {slice_name}: {len(events)} trace events -> {trace_path}")
+            # 合并视图：每个 slice 一个独立进程（各自 origin），避免伪造跨 launch 的相对时间。
+            slice_pid = f"rank{args.rank}_{slice_name}"
+            for event in events:
+                event["pid"] = slice_pid
+            combined_events.extend(events)
         elif args.cycles_per_us is not None and not args.shared_clock:
             print(f"[INFO] {slice_name}: 未给 --shared-clock，不生成 trace")
+
+    if combined_events:
+        combined_path = out_dir / f"rank_{args.rank}_gdn_timer.json"
+        combined_path.write_text(
+            json.dumps({"traceEvents": combined_events, "displayTimeUnit": "us"},
+                       ensure_ascii=False, indent=2), encoding="utf-8")
+        print(f"[INFO] combined: {len(combined_events)} trace events -> {combined_path}")
 
     (out_dir / "metadata.json").write_text(
         json.dumps(metadata, ensure_ascii=False, indent=2), encoding="utf-8")
