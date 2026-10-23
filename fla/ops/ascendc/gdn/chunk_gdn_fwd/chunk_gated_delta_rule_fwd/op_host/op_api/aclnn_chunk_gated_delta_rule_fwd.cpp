@@ -866,7 +866,7 @@ static aclnnStatus ChunkGatedDeltaRuleFwdGetWorkspaceSizeImpl(
         outputFinalState, params.chunkSize, params.scale, params.gCumsumOutOptional != nullptr,
         oCompute, finalState,
         gCumsumCompute, aCompute, usePreparedCumsum ? 1 : 0, nativeQkv ? 1 : 0,
-        sequenceMajorOutput ? 1 : 0, executorPtr);
+        sequenceMajorOutput ? 1 : 0, params.timerOptional, executorPtr);
     GDN_STAGE_CHECK(phase6Result[0] != nullptr && phase6Result[2] != nullptr &&
                         phase6Result[3] != nullptr,
                         169112);
