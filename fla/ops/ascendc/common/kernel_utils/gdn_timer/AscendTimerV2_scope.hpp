@@ -39,7 +39,9 @@ private:
     int32_t iter_;
 };
 
+#define GDN_TIMER_SCOPE_CAT_(a, b) a##b
+#define GDN_TIMER_SCOPE_CAT(a, b) GDN_TIMER_SCOPE_CAT_(a, b)
 #define GDN_TIMER_SCOPE(timer_ptr, stage_type) \
-    AscendTimerScope gdn_timer_scope_guard(timer_ptr, stage_type)
+    AscendTimerScope GDN_TIMER_SCOPE_CAT(gdn_timer_scope_, __LINE__)(timer_ptr, stage_type)
 
 #endif // ASCEND_TIMER_SCOPE_H
