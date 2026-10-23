@@ -45,7 +45,7 @@ aclnn ChunkGatedDeltaRuleFwd
 |---|---|---|---|---|---|---|
 | S0 常驻辅助 | `PREP_RESIDENT_AUX` | `Stage0_GenerateResidentAux`（`auxReady` 判定之后） | AIV | 固定 | — | 整个 kernel 一次 |
 | S1-pre 尾块补齐 | `PREP_PAD_TAIL` | `Stage1_PadTailIfNeeded`（`nValid >= nPad` 判定之后） | AIV | 动态 | task | 仅 tail 命中 |
-| S1a k̂ 上传 | `PREP_K_UPLOAD` | `Stage1_UploadK` 的整个函数体（`OwnsHk` 判定之后），到 `NotifyAicStage1Done` 为止 | AIV | 动态 | task | 放行点在这里；q̂ 导出也在此窗口内，且窗口内含 `WaitAicStage4Done` 这一功能性跨核等待，见 §5 |
+| S1a k̂ 上传 | `PREP_K_UPLOAD` | `Stage1_UploadK` 中 **`WaitAicStage4Done(taskIdx)` 之后**到函数结束（Upload + `NotifyAicStage1Done` + q̂ 导出） | AIV | 动态 | task | 放行点（Notify）在窗口内；S4 槽位等待及其之前的 DataCopy/L2Norm 不计入本窗口 |
 | S1b gate/β | `PREP_GATE_BETA` | `Stage1_GateAndBeta` | AIV | 动态 | task | 与 Cube KKT 并行 |
 | S2 KKT | `PREP_KKT_MM` | `Stage2_AicOne` 的 `MatmulToL0C`（**不含前面的 `WaitFlag<M_MTE1>`**，也不含后面的 dump） | AIC | 动态 | (chunk,HK) | 每 HK 一次，G=2 每包 2 次 |
 | S3a gate 预计算 | `PREP_KKT_GATE` | `Stage3_PrepareGate` | AIV | 动态 | (chunk,HV) | 可在等 KKT 之前完成 |
@@ -128,10 +128,9 @@ aclnn ChunkGatedDeltaRuleFwd
    这样窗口内**不含任何等待**，只测 MMAD 下发。`LoadStage0W` / `LoadKg` 的 GM→L1
    搬入确实存在独立调用点，已打 `FWH_PREFETCH`（W 与 K/kg 各一处，K 的
    `STATE_V_FIRST` 两支同类型）。
-3. **PREP_K_UPLOAD 含跨核功能等待**：按"`Stage1_UploadK` 函数体"的要求，窗口从
-   `OwnsHk` 判定之后开始，因此**包含窗口内的 `WaitAicStage4Done(taskIdx)`**
-   （k' 的 L1 槽被上一包 Stage4 占用，必须等它 dump 完）。这一段是功能性等待，
-   读数时注意 `PREP_K_UPLOAD` 不是纯计算窗口；未为此新增任何同步。
+3. **PREP_K_UPLOAD 不含跨核等待**：窗口从 `WaitAicStage4Done(taskIdx)` **之后**开始，
+   覆盖 UploadBf16NdToL1 + `NotifyAicStage1Done` + q̂ 导出；S4 槽位等待本身
+   以及等待之前的 DataCopy/L2Norm 不计入本窗口（未新增任何同步，等待仍按原位置执行）。
 4. **PREP_SOLVE_PREFILL 逐 task**：`Stage4_PrefillI` 的 `I@I` 在 `nThis` 循环里，
    每个 task 一个 scope、一个 iter，因此 `PREP_SOLVE_PREFILL_N` 对应第 N 个 task。
 5. **PREP_SOLVE_DUMP 两处同类型**：`Stage4_Dump`（L0C→GM workspace→L1）与

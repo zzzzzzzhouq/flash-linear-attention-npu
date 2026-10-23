@@ -332,8 +332,8 @@ public:
             WaitAicStage4Done(taskIdx);
             return;
         }
-        // k̂ 归一化 + L1 上传 + q̂ 导出；NotifyAicStage1Done（Cube KKT 放行点）在本窗口内。
-        GDN_TIMER_SCOPE(&timer_, AscendTimer::PREP_K_UPLOAD);
+        // k̂ 归一化 + L1 上传 + q̂ 导出。S4 槽位等待（WaitAicStage4Done）不纳入窗口：
+        // 该等待之前的 DataCopy/L2Norm 不计时，窗口从等待之后（Upload+Notify）开始。
         const int64_t hk = hv / HRatio;
         const int32_t db = PingPongSlot(taskIdx);
         const int32_t nElem = static_cast<int32_t>(chunk.M * K);
@@ -350,6 +350,7 @@ public:
             SetFlag<HardEvent::V_MTE3>(kHeUb0);
             WaitFlag<HardEvent::V_MTE3>(kHeUb0);
             WaitAicStage4Done(taskIdx);
+            GDN_TIMER_SCOPE(&timer_, AscendTimer::PREP_K_UPLOAD);
             UploadBf16NdToL1(l1K, ubKHat[db], static_cast<uint32_t>(K));
             NotifyAicStage1Done(taskIdx);
             DataCopy(gmKHat[offQk], ubKHat[db], nElem);
@@ -367,6 +368,7 @@ public:
             SetFlag<HardEvent::MTE2_MTE3>(kHeUb0);
             WaitFlag<HardEvent::MTE2_MTE3>(kHeUb0);
             WaitAicStage4Done(taskIdx);
+            GDN_TIMER_SCOPE(&timer_, AscendTimer::PREP_K_UPLOAD);
             UploadBf16NdToL1(l1K, ubK[db], static_cast<uint32_t>(K));
             NotifyAicStage1Done(taskIdx);
         }
