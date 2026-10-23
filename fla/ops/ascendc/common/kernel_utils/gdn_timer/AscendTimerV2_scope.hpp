@@ -3,7 +3,8 @@
 
 #include "AscendTimerV2_device.hpp"
 
-// RAII 计时窗口：构造时 TikNoBarrier，析构时 TokNoBarrier<Overwrite>。
+// RAII 计时窗口：构造时分配本 stage 的下一个 iter 并 TikNoBarrier，
+// 析构时 TokNoBarrier<Overwrite>。iter 由 timer 内部单调分配，跨 pack 不会覆盖。
 // 约定：
 //   * 只包"计算 / 下发"代码，不包 WaitFlag / CrossCoreWaitFlag / SyncAll；
 //     若某段计算前面存在功能性等待，把本对象放在等待之后。
@@ -13,11 +14,11 @@ class AscendTimerScope
 {
 public:
     __aicore__ inline AscendTimerScope(AscendTimerDevice *timer,
-                                       AscendTimer::DynamicTimingType type,
-                                       int32_t iter)
-        : timer_(timer), type_(type), iter_(iter)
+                                       AscendTimer::DynamicTimingType type)
+        : timer_(timer), type_(type), iter_(0)
     {
         if (timer_ != nullptr) {
+            iter_ = timer_->NextIter(type_);
             timer_->TikNoBarrier(type_, iter_);
         }
     }
@@ -38,7 +39,7 @@ private:
     int32_t iter_;
 };
 
-#define GDN_TIMER_SCOPE(timer_ptr, stage_type, iter_idx) \
-    AscendTimerScope gdn_timer_scope_guard(timer_ptr, stage_type, iter_idx)
+#define GDN_TIMER_SCOPE(timer_ptr, stage_type) \
+    AscendTimerScope gdn_timer_scope_guard(timer_ptr, stage_type)
 
 #endif // ASCEND_TIMER_SCOPE_H

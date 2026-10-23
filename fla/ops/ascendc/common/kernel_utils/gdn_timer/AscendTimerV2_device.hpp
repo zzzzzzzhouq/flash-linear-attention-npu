@@ -40,6 +40,7 @@ public:
             dynamic_start_cycles[i] = 0;
             dynamic_start_iters[i] = -1;
             dynamic_valid[i] = false;
+            next_iter_[i] = 0;
         }
         block_id = 0;
         r = 0;
@@ -56,6 +57,7 @@ public:
             dynamic_start_cycles[i] = 0;
             dynamic_start_iters[i] = -1;
             dynamic_valid[i] = false;
+            next_iter_[i] = 0;
         }
         block_id = AscendC::GetBlockIdx();
         r = AscendC::GetTaskRation();
@@ -100,6 +102,7 @@ public:
             dynamic_start_cycles[i] = 0;
             dynamic_start_iters[i] = -1;
             dynamic_valid[i] = false;
+            next_iter_[i] = 0;
         }
         block_id = AscendC::GetBlockIdx();
         r = AscendC::GetTaskRation();
@@ -421,7 +424,29 @@ public:
 #endif
     }
 
+    // ========== 12.1 动态迭代槽位分配（每个 stage、每个核单调递增） ==========
+    __aicore__ __inline__ int32_t NextIter(AscendTimer::DynamicTimingType type)
+    {
+        const int32_t t = static_cast<int32_t>(type);
+        if (t < 0 || t >= AscendTimer::DYNAMIC_TYPE_COUNT) { return 0; }
+        int32_t iter = next_iter_[t];
+        if (iter >= AscendTimer::MAX_DYNAMIC_ITER) { iter = AscendTimer::MAX_DYNAMIC_ITER - 1; }
+        else { next_iter_[t] = iter + 1; }
+        return iter;
+    }
+
+    // kernel 收尾调用一次：把每个 stage 的实际调用次数写入计数区。
+    __aicore__ __inline__ void PublishCounts()
+    {
+        for (int32_t i = 0; i < AscendTimer::DYNAMIC_TYPE_COUNT; ++i) {
+            if (next_iter_[i] > 0) {
+                setDynamicActualIter(static_cast<AscendTimer::DynamicTimingType>(i), next_iter_[i]);
+            }
+        }
+    }
+
 private:
+    int32_t next_iter_[AscendTimer::DYNAMIC_TYPE_COUNT];
     // ========== 13. 核内索引计算 ==========
     __aicore__ __inline__ int32_t calculate_index(int32_t idx)
     {
