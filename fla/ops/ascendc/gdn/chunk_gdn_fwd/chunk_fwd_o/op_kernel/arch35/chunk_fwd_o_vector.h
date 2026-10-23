@@ -9,6 +9,7 @@
 #include "kernel_operator.h"
 #include "catlass/arch/cross_core_sync.hpp"
 #include "catlass/arch/resource.hpp"
+#include "kernel_utils/gdn_timer/AscendTimerV2_scope.hpp"
 #include "kernel_utils/vector/regbase.hpp"
 #include "../chunk_fwd_o_struct.h"
 #include "chunk_fwd_o_common.h"
@@ -255,10 +256,11 @@ public:
         (void)workspace;
     }
 
-    __aicore__ inline void Init(const ChunkFwdOTilingData &tiling, TPipe *pipe)
+    __aicore__ inline void Init(const ChunkFwdOTilingData &tiling, TPipe *pipe, AscendTimerDevice *timer = nullptr)
     {
         tiling_ = tiling;
         pipe_ = pipe;
+        timer_ = timer;
         oGm_.SetGlobalBuffer((__gm__ bfloat16_t *)o_);
 
         pipe_->InitBuffer(ubBuf_, CHUNK_FWD_O_UB_TOTAL_BYTES);
@@ -483,6 +485,8 @@ private:
     GM_ADDR o_;
     ChunkFwdOTilingData tiling_{};
     TPipe *pipe_ = nullptr;
+    // 计时（SLICE_FWD_O 切片）；为空时 scope 整体退化为无操作。
+    AscendTimerDevice *timer_ = nullptr;
 
     TBuf<TPosition::VECCALC> ubBuf_;
     Catlass::Arch::Resource<ArchTag> resource_;

@@ -11,6 +11,7 @@
 
 #include "../chunk_fwd_h_policy.h"
 #include "../chunk_fwd_h_utils.h"
+#include "kernel_utils/gdn_timer/AscendTimerV2_scope.hpp"
 #include "kernel_utils/vector/regbase.hpp"
 
 namespace GDN {
@@ -339,6 +340,14 @@ public:
     __aicore__ inline void Init(const FwdHKernelArgs &args)
     {
         args_ = args;
+        // 设备侧计时器：本 launch 独占 timer 张量的 SLICE_FWD_H 切片。
+        // timer 为空时所有 Tik/Tok 直接返回，数值路径不变。
+        if (args_.timer != nullptr) {
+            timer_.Init(args_.timer + AscendTimer::SliceOffsetWords(AscendTimer::SLICE_FWD_H) *
+                                          static_cast<int64_t>(sizeof(int64_t)));
+            timer_.TikNoBarrier();
+            timerKernelStartCycle_ = timer_.GetStartCycle();
+        }
         coreIdx_ = AscendC::GetBlockIdx() / AscendC::GetSubBlockNum();
         coreNum_ = AscendC::GetBlockNum();
         aiv_ = AscendC::GetSubBlockIdx();
@@ -346,10 +355,13 @@ public:
         ub_ = allocator.Alloc<AscendC::TPosition::VECCALC, uint8_t>(
             AscendC::GetRuntimeUBSize());
         InitLocalEvents();
+        // Init -> InitDone 记为 MAIN_INIT。
+        timer_.TokNoBarrier<AscendTimer::Overwrite>(AscendTimer::MAIN_INIT);
     }
 
     __aicore__ inline void Process()
     {
+        timer_.TikNoBarrier(); // MAIN_BODY 起点（InitDone）
         const FwdHCoreHeadRange range =
             FwdHResolveCoreHeadRange(args_.tiling, coreIdx_, coreNum_);
         const uint32_t headsPerSequence = static_cast<uint32_t>(args_.tiling.vNumHead);
@@ -379,6 +391,11 @@ public:
             }
         }
         DrainLocalEvents();
+        // 收尾：MAIN_BODY -> 每 stage 实际迭代次数 -> 带 barrier 的 KERNEL 总窗口。
+        timer_.TokNoBarrier<AscendTimer::Overwrite>(AscendTimer::MAIN_BODY);
+        timer_.PublishCounts();
+        timer_.Tik(timerKernelStartCycle_);
+        timer_.Tok<AscendTimer::Overwrite>(AscendTimer::KERNEL_TIMING_IDX);
     }
 
 private:
@@ -1217,6 +1234,9 @@ private:
     // allocator 从 dynamicStartUB 分配 GetRuntimeUBSize()，保留 split-core AIV 的
     // 高端 8 KiB VF 栈，不假设运行时 UB 起始地址为 0。
     AscendC::LocalTensor<uint8_t> ub_{};
+    // 计时（SLICE_FWD_H 切片）；timer 为空张量时整类退化为无操作。
+    AscendTimerDevice timer_;
+    int64_t timerKernelStartCycle_ = 0;
 };
 
 } // namespace GDN

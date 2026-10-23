@@ -41,6 +41,10 @@ public:
             .Format(formats).UnknownShapeFormat(formats).AutoContiguous();
         this->Input("chunk_indices").ParamType(OPTIONAL).ValueDepend(OPTIONAL).DataType(indexTypes)
             .Format(formats).UnknownShapeFormat(formats).AutoContiguous();
+        // 可选 INT64 计时缓冲（kernel_utils/gdn_timer 布局，三算子各占一个切片）。
+        // 传空指针时 Prepare/FwdH/FwdO kernel 内所有计时点退化为无操作。
+        this->Input("timer").ParamType(OPTIONAL).DataType(indexTypes)
+            .Format(formats).UnknownShapeFormat(formats).AutoContiguous();
 
         this->Output("o").ParamType(REQUIRED).DataType(inputTypes).Format(formats)
             .UnknownShapeFormat(formats);

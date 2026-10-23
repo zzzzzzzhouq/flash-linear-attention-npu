@@ -44,6 +44,7 @@ const std::array<const aclTensor *, 9> ChunkGatedDeltaRuleFwdPrepare(
     const aclTensor *dtBiasOptional,
     const aclIntArray *cuSeqlensOptional,
     const aclIntArray *chunkIndicesOptional,
+    const aclTensor *timerOptional,
     int64_t chunkSize,
     bool allowNegEigval,
     bool useExp2,
@@ -83,7 +84,7 @@ const std::array<const aclTensor *, 9> ChunkGatedDeltaRuleFwdPrepare(
     }
 
     L0_DFX(ChunkGatedDeltaRuleFwdPrepare, q, k, v, g, beta, aLogOptional, dtBiasOptional, cuSeqlensOptional,
-           chunkIndicesOptional, chunkSize, allowNegEigval, useExp2, useQkL2norm, useGateInKernel,
+           chunkIndicesOptional, timerOptional, chunkSize, allowNegEigval, useExp2, useQkL2norm, useGateInKernel,
            useBetaSigmoid, outputA, gOut, wOut, uOut, aOut, qHatOptional, kHatOptional, qRstdOptional,
            kRstdOptional, betaEffOptional);
 
@@ -121,7 +122,8 @@ const std::array<const aclTensor *, 9> ChunkGatedDeltaRuleFwdPrepare(
 
     auto ret = ADD_TO_LAUNCHER_LIST_AICORE(
         ChunkGatedDeltaRuleFwdPrepare,
-        OP_INPUT(q, k, v, g, beta, aLogOptional, dtBiasOptional, actualCuSeqlens, actualChunkIndices),
+        OP_INPUT(q, k, v, g, beta, aLogOptional, dtBiasOptional, actualCuSeqlens, actualChunkIndices,
+                 timerOptional),
         OP_OUTPUT(gOut, wOut, uOut, aOut, actualQHat, actualKHat, actualQRstd, actualKRstd, actualBetaEff),
         OP_ATTR(chunkSize, allowNegEigval, useExp2, useQkL2norm, useGateInKernel, useBetaSigmoid, outputA));
     if (ret != ACLNN_SUCCESS) {

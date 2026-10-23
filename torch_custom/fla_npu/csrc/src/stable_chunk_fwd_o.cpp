@@ -94,7 +94,9 @@ Tensor run_npu_chunk_fwd_o(Tensor q, Tensor k, Tensor v, Tensor h,
   FLA_STABLE_EXEC("aclnnChunkFwdO", meta_of(v), stream, tensor(meta_of(q)),
                   tensor(meta_of(k)), tensor(v_meta), tensor(meta_of(h)),
                   optional_tensor(g), int_array(cu_seqlens),
-                  int_array(chunk_indices), scalar(scale), scalar(chunk_size),
+                  int_array(chunk_indices),
+                  /*timer=*/optional_tensor(std::nullopt), scalar(scale),
+                  scalar(chunk_size),
                   scalar(use_exp2), scalar(transpose_state_layout),
                   CStrArg(layout), out_tensor(meta_of(out)));
   return out;

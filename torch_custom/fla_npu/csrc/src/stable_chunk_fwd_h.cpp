@@ -72,6 +72,7 @@ std::tuple<Tensor, Tensor, std::optional<Tensor>> run_npu_chunk_fwd_h(
                   nd_optional_tensor(initial_state),
                   scalar(output_final_state), scalar(chunk_size),
                   scalar(save_new_value), int_array(cu), int_array(ci),
+                  /*timer=*/nd_optional_tensor(std::nullopt),
                   scalar(use_exp2), scalar(state_v_first),
                   nd_out_tensor(meta_of(out.h)),
                   nd_out_tensor(meta_of(out.v_new)),

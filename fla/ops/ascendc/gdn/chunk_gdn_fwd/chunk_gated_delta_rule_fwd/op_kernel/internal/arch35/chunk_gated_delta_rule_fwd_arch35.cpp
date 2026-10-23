@@ -475,10 +475,12 @@ __aicore__ inline void RunPhase6(
 extern "C" __global__ __aicore__ void chunk_gated_delta_rule_fwd(
     GM_ADDR q, GM_ADDR k, GM_ADDR v, GM_ADDR beta, GM_ADDR a_storage, GM_ADDR raw_g,
     GM_ADDR gk, GM_ADDR initial_state, GM_ADDR cu_seqlens, GM_ADDR chunk_indices,
-    GM_ADDR o, GM_ADDR final_state, GM_ADDR g_cumsum_bth, GM_ADDR A,
+    GM_ADDR timer, GM_ADDR o, GM_ADDR final_state, GM_ADDR g_cumsum_bth, GM_ADDR A,
     GM_ADDR workspace, GM_ADDR tiling)
 {
     (void)a_storage;
+    // 融合 Phase6 路径本轮不打点；timer 只占位以保持与 op_def 的入参个数一致。
+    (void)timer;
     REGISTER_TILING_DEFAULT(GDN::Arch35ChunkGatedDeltaRuleFwdTrailer);
     if (TILING_KEY_IS(1)) {
         KERNEL_TASK_TYPE(1, KERNEL_TYPE_MIX_AIC_1_2);

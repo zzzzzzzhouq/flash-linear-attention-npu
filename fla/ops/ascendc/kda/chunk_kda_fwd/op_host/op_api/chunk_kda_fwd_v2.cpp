@@ -253,7 +253,7 @@ aclnnStatus KdaFwdV2(const KdaFwdV2Args &args, aclOpExecutor *executor)
                "ChunkKdaFwdV2: failed to allocate FwdH output tensors.");
 
     const auto fwdHResult = l0op::ChunkFwdH(
-        kgHead, wHead, uHead, nullptr, gkHead, args.initialState, args.cuSeqlens, args.chunkIndices,
+        kgHead, wHead, uHead, nullptr, gkHead, args.initialState, args.cuSeqlens, args.chunkIndices, nullptr,
         outputFinalState, chunkSize, true, args.useExp2, args.stateVFirst, hCompute,
         vNewCompute, outputFinalState ? args.finalStateOut : nullptr, executor);
     CHECK_COND(fwdHResult[0] != nullptr && fwdHResult[1] != nullptr &&

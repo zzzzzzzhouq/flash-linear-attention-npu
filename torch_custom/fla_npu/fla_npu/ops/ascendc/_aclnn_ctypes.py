@@ -81,6 +81,7 @@ _GET_WORKSPACE_ARGTYPES = {
         ctypes.c_void_p,  # g
         ctypes.c_void_p,  # cuSeqlensOptional
         ctypes.c_void_p,  # chunkOffsetsOptional
+        ctypes.c_void_p,  # timerOptional（可选计时缓冲）
         ctypes.c_double,  # scale
         ctypes.c_int64,  # chunkSize
         ctypes.c_bool,  # useExp2
@@ -159,6 +160,7 @@ _GET_WORKSPACE_ARGTYPES = {
         ctypes.c_void_p,  # initialStateOptional
         ctypes.c_void_p,  # cuSeqlensOptional
         ctypes.c_void_p,  # chunkIndicesOptional
+        ctypes.c_void_p,  # timerOptional（可选计时缓冲）
         ctypes.c_char_p,  # layout
         ctypes.c_double,  # scale
         ctypes.c_int64,  # chunkSize
@@ -246,6 +248,7 @@ _GET_WORKSPACE_ARGTYPES = {
         ctypes.c_void_p,  # dtBiasOptional
         ctypes.c_void_p,  # cuSeqlensOptional
         ctypes.c_void_p,  # chunkIndicesOptional
+        ctypes.c_void_p,  # timerOptional（可选计时缓冲）
         ctypes.c_int64,  # chunkSize
         ctypes.c_bool,  # allowNegEigval
         ctypes.c_bool,  # useExp2
@@ -957,6 +960,7 @@ def npu_chunk_gated_delta_rule_fwd_prepare(
     cu_seqlens=None,
     chunk_indices=None,
     output_a=True,
+    timer=None,
 ):
     import torch
 
@@ -1047,6 +1051,7 @@ def npu_chunk_gated_delta_rule_fwd_prepare(
             logical_tensor(ctx, dt_bias if use_gate_in_kernel else None, "dt_bias"),
             ctx.int_array(cu_seqlens_list),
             ctx.int_array(chunk_indices_list),
+            logical_tensor(ctx, timer, "timer"),
             ctypes.c_int64(int(chunk_size)),
             ctypes.c_bool(allow_neg_eigval),
             ctypes.c_bool(use_exp2),
@@ -1438,6 +1443,7 @@ def npu_chunk_fwd_o(
     transpose_state_layout=False,
     use_exp2=False,
     output_layout="BNSD",
+    timer=None,
 ):
     del g_gamma
     chunk_size = _optional_int(chunk_size, 64)
@@ -1465,6 +1471,7 @@ def npu_chunk_fwd_o(
             ctx.tensor(g, "g"),
             ctx.int_array(cu_seqlens),
             ctx.int_array(chunk_indices),
+            ctx.tensor(timer, "timer"),
             ctypes.c_double(float(scale)),
             ctypes.c_int64(chunk_size),
             ctypes.c_bool(use_exp2),
@@ -1669,6 +1676,7 @@ def npu_chunk_fwd_h(
     chunk_indices=None,
     use_exp2=False,
     state_v_first=False,
+    timer=None,
 ):
     import torch
 
@@ -1804,6 +1812,7 @@ def npu_chunk_fwd_h(
             ctypes.c_bool(save_new_value),
             ctx.int_array(cu),
             ctx.int_array(indices),
+            nd_tensor(ctx, timer, "timer"),
             ctypes.c_bool(use_exp2),
             ctypes.c_bool(state_v_first),
             nd_tensor(ctx, h_out, "h"),
@@ -2932,8 +2941,14 @@ def npu_chunk_gated_delta_rule_fwd(
     a_log=None,
     dt_bias=None,
     layout="BNSD",
+    timer=None,
 ):
-    """调用融合 GDN 前向；训练默认导出 gCumsum/A，推理显式设为 False。"""
+    """调用融合 GDN 前向；训练默认导出 gCumsum/A，推理显式设为 False。
+
+    ``timer`` 是可选 INT64 NPU 张量，长度为
+    ``AscendTimer::TOTAL_BUFFER_WORDS``（见 kernel_utils/gdn_timer/AscendTimerV2.hpp）；
+    三个子算子各写自己的切片。为 None 时不计时。
+    """
     import torch
 
     q_shape = _shape(q)
@@ -3060,6 +3075,7 @@ def npu_chunk_gated_delta_rule_fwd(
             ctx.tensor(initial_state, "initial_state"),
             ctx.int_array(cu_seqlens),
             ctx.int_array(chunk_indices),
+            ctx.tensor(timer, "timer"),
             ctypes.cast(layout_buffer, ctypes.c_char_p),
             ctypes.c_double(scale),
             ctypes.c_int64(int(chunk_size)),

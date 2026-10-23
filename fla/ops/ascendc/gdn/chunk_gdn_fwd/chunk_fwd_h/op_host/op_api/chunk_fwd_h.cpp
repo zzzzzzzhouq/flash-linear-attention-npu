@@ -42,6 +42,7 @@ const std::array<const aclTensor *, 3> ChunkFwdH(
     const aclTensor *initialStateOptional,
     const aclIntArray *cuSeqlensOptional,
     const aclIntArray *chunkIndicesOptional,
+    const aclTensor *timerOptional,
     bool outputFinalState,
     int64_t chunkSize,
     bool saveNewValue,
@@ -53,7 +54,7 @@ const std::array<const aclTensor *, 3> ChunkFwdH(
     aclOpExecutor *executor)
 {
     L0_DFX(ChunkFwdH, k, w, u, g, gkOptional, initialStateOptional, cuSeqlensOptional,
-           chunkIndicesOptional, outputFinalState, chunkSize, saveNewValue, useExp2, stateVFirst,
+           chunkIndicesOptional, timerOptional, outputFinalState, chunkSize, saveNewValue, useExp2, stateVFirst,
            hOut, vNewOut, finalStateOut);
 
     const aclTensor *actualCuSeqlens = nullptr;
@@ -104,7 +105,8 @@ const std::array<const aclTensor *, 3> ChunkFwdH(
         }
     }
     auto ret = ADD_TO_LAUNCHER_LIST_AICORE(ChunkFwdH,
-        OP_INPUT(k, w, u, g, gkOptional, initialStateOptional, actualCuSeqlens, actualChunkIndices),
+        OP_INPUT(k, w, u, g, gkOptional, initialStateOptional, actualCuSeqlens, actualChunkIndices,
+                 timerOptional),
         OP_OUTPUT(hOut, vNewOut, finalStateOutKernel),
         OP_ATTR(outputFinalState, chunkSize, saveNewValue, useExp2, stateVFirst,
                 logicalBatch, logicalSeqlen,

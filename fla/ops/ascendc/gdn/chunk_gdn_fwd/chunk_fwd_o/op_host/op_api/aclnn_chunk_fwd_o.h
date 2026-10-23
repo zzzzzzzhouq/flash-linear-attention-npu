@@ -24,6 +24,7 @@ extern "C" {
  * g : required
  * cuSeqlensOptional : optional
  * chunkOffsetsOptional : optional
+ * timerOptional : optional INT64 timing buffer (SLICE_FWD_O slice); nullptr disables timing
  * scale : required
  * chunkSize : required
  * useExp2 : optional
@@ -42,6 +43,7 @@ aclnnStatus aclnnChunkFwdOGetWorkspaceSize(
     const aclTensor *g,
     const aclIntArray *cuSeqlensOptional,
     const aclIntArray *chunkOffsetsOptional,
+    const aclTensor *timerOptional,
     double scale,
     int64_t chunkSize,
     bool useExp2,

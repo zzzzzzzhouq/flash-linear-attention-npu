@@ -23,6 +23,7 @@ aclnnStatus aclnnChunkGatedDeltaRuleFwdPrepareGetWorkspaceSize(
     const aclTensor *dtBiasOptional,
     const aclIntArray *cuSeqlensOptional,
     const aclIntArray *chunkIndicesOptional,
+    const aclTensor *timerOptional,
     int64_t chunkSize,
     bool allowNegEigval,
     bool useExp2,

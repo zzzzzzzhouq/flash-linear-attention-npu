@@ -18,6 +18,7 @@
 #include "catlass/gemm/tile/tile_copy.hpp"
 #include "catlass/gemm/tile/tile_mmad.hpp"
 #include "catlass/layout/layout.hpp"
+#include "kernel_utils/gdn_timer/AscendTimerV2_scope.hpp"
 #include "kernel_utils/tile/copy_l0c_to_ub.hpp"
 #include "../chunk_fwd_o_struct.h"
 #include "chunk_fwd_o_common.h"
@@ -73,9 +74,10 @@ public:
         (void)workspace;
     }
 
-    __aicore__ inline void Init(const ChunkFwdOTilingData &tiling)
+    __aicore__ inline void Init(const ChunkFwdOTilingData &tiling, AscendTimerDevice *timer = nullptr)
     {
         tiling_ = tiling;
+        timer_ = timer;
         qGm_.SetGlobalBuffer((__gm__ Element *)q_);
         kGm_.SetGlobalBuffer((__gm__ Element *)k_);
         vGm_.SetGlobalBuffer((__gm__ Element *)v_);
@@ -518,6 +520,8 @@ private:
     GM_ADDR o_;
     ChunkFwdOTilingData tiling_{};
     Catlass::Arch::Resource<ArchTag> resource_;
+    // 计时（SLICE_FWD_O 切片）；为空时 scope 整体退化为无操作。
+    AscendTimerDevice *timer_ = nullptr;
     GlobalTensor<Element> qGm_;
     GlobalTensor<Element> kGm_;
     GlobalTensor<Element> vGm_;

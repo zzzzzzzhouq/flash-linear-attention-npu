@@ -169,6 +169,8 @@ struct FwdHKernelArgs {
     GM_ADDR vNew = nullptr;
     GM_ADDR finalState = nullptr;
     GM_ADDR workspace = nullptr;
+    // 可选计时缓冲（SLICE_FWD_H 切片）；nullptr 时所有计时点退化为无操作。
+    GM_ADDR timer = nullptr;
     FwdHRuntimeTiling tiling{};
 };
 

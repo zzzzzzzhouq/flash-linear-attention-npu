@@ -17,6 +17,7 @@
 #define CHUNK_FWD_O_ARCH35_A5_H
 
 #include "kernel_operator.h"
+#include "kernel_utils/gdn_timer/AscendTimerV2_scope.hpp"
 #include "../chunk_fwd_o_struct.h"
 #include "chunk_fwd_o_common.h"
 #include "chunk_fwd_o_cube.h"
@@ -29,7 +30,7 @@ class ChunkFwdOA5 {
 public:
     __aicore__ inline void Init(GM_ADDR q, GM_ADDR k, GM_ADDR v, GM_ADDR h, GM_ADDR g, GM_ADDR cuSeqlens,
                                 GM_ADDR chunkOffsets, GM_ADDR o, GM_ADDR workspace,
-                                const ChunkFwdOTilingData *tilingData)
+                                const ChunkFwdOTilingData *tilingData, GM_ADDR timerAddr = nullptr)
     {
         q_ = q;
         k_ = k;
@@ -41,9 +42,31 @@ public:
         o_ = o;
         workspace_ = workspace;
         tiling_ = *tilingData;
+        // 设备侧计时器：本 launch 独占 timer 张量的 SLICE_FWD_O 切片。
+        // timerAddr 为空时所有 Tik/Tok 直接返回，数值路径不变。
+        if (timerAddr != nullptr) {
+            timer_.Init(timerAddr + AscendTimer::SliceOffsetWords(AscendTimer::SLICE_FWD_O) *
+                                        static_cast<int64_t>(sizeof(int64_t)));
+            timer_.TikNoBarrier();
+            timerKernelStartCycle_ = timer_.GetStartCycle();
+        }
+        // Init -> InitDone 记为 MAIN_INIT。
+        timer_.TokNoBarrier<AscendTimer::Overwrite>(AscendTimer::MAIN_INIT);
     }
 
     __aicore__ inline void Process()
+    {
+        timer_.TikNoBarrier(); // MAIN_BODY 起点（InitDone）
+        ProcessCore();
+        // 收尾：MAIN_BODY -> 每 stage 实际迭代次数 -> 带 barrier 的 KERNEL 总窗口。
+        timer_.TokNoBarrier<AscendTimer::Overwrite>(AscendTimer::MAIN_BODY);
+        timer_.PublishCounts();
+        timer_.Tik(timerKernelStartCycle_);
+        timer_.Tok<AscendTimer::Overwrite>(AscendTimer::KERNEL_TIMING_IDX);
+    }
+
+private:
+    __aicore__ inline void ProcessCore()
     {
         const uint32_t aicCoreIdx = AscendC::GetBlockIdx();
         const uint32_t aicCoreNum = AscendC::GetBlockNum();
@@ -54,19 +77,18 @@ public:
             AscendC::TPipe pipe;
             ChunkFwdOA5VectorProcess<GT, UseExp2> vector(q_, k_, v_, h_, g_, cuSeqlens_, chunkOffsets_, o_,
                                                        workspace_);
-            vector.Init(tiling_, &pipe);
+            vector.Init(tiling_, &pipe, &timer_);
             vector.Process(aivCoreIdx, aivCoreNum);
             return;
         }
 
         if ASCEND_IS_AIC {
             ChunkFwdOA5CubeProcess cube(q_, k_, v_, h_, g_, cuSeqlens_, chunkOffsets_, o_, workspace_);
-            cube.Init(tiling_);
+            cube.Init(tiling_, &timer_);
             cube.Process(aicCoreIdx, aicCoreNum);
         }
     }
 
-private:
     GM_ADDR q_ = nullptr;
     GM_ADDR k_ = nullptr;
     GM_ADDR v_ = nullptr;
@@ -77,15 +99,18 @@ private:
     GM_ADDR o_ = nullptr;
     GM_ADDR workspace_ = nullptr;
     ChunkFwdOTilingData tiling_{};
+    // 计时（SLICE_FWD_O 切片）；timer 为空张量时整类退化为无操作。
+    AscendTimerDevice timer_;
+    int64_t timerKernelStartCycle_ = 0;
 };
 
 template <typename GT, bool UseExp2>
 __aicore__ inline void ChunkFwdOA5Dispatch(GM_ADDR q, GM_ADDR k, GM_ADDR v, GM_ADDR h, GM_ADDR g,
                                            GM_ADDR cuSeqlens, GM_ADDR chunkOffsets, GM_ADDR o, GM_ADDR workspace,
-                                           const ChunkFwdOTilingData *tilingData)
+                                           const ChunkFwdOTilingData *tilingData, GM_ADDR timer)
 {
     ChunkFwdOA5<GT, UseExp2> op;
-    op.Init(q, k, v, h, g, cuSeqlens, chunkOffsets, o, workspace, tilingData);
+    op.Init(q, k, v, h, g, cuSeqlens, chunkOffsets, o, workspace, tilingData, timer);
     op.Process();
 }
 

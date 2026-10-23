@@ -28,6 +28,7 @@ extern "C" {
  * saveNewValue : reserved, must be true
  * cuSeqlensOptional : optional
  * chunkIndicesOptional : optional
+ * timerOptional : optional INT64 timing buffer (SLICE_FWD_H slice); nullptr disables timing
  * useExp2 : false selects exp, true selects exp2
  * stateVFirst : whether initial/final state and h use [..., V, K] instead of [..., K, V]
  * hOut : required
@@ -49,6 +50,7 @@ aclnnStatus aclnnChunkFwdHGetWorkspaceSize(
     bool saveNewValue,
     const aclIntArray *cuSeqlensOptional,
     const aclIntArray *chunkIndicesOptional,
+    const aclTensor *timerOptional,
     bool useExp2,
     bool stateVFirst,
     const aclTensor *hOut,

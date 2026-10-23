@@ -44,6 +44,7 @@ struct ChunkGatedDeltaRuleFwdPrepareParams {
     const aclTensor *dtBiasOptional = nullptr;
     const aclIntArray *cuSeqlensOptional = nullptr;
     const aclIntArray *chunkIndicesOptional = nullptr;
+    const aclTensor *timerOptional = nullptr;
     int64_t chunkSize = 64;
     bool allowNegEigval = false;
     bool useExp2 = false;
@@ -294,6 +295,7 @@ aclnnStatus aclnnChunkGatedDeltaRuleFwdPrepareGetWorkspaceSize(
     const aclTensor *dtBiasOptional,
     const aclIntArray *cuSeqlensOptional,
     const aclIntArray *chunkIndicesOptional,
+    const aclTensor *timerOptional,
     int64_t chunkSize,
     bool allowNegEigval,
     bool useExp2,
@@ -312,12 +314,12 @@ aclnnStatus aclnnChunkGatedDeltaRuleFwdPrepareGetWorkspaceSize(
 {
     ChunkGatedDeltaRuleFwdPrepareParams params{
         q, k, v, g, beta, aLogOptional, dtBiasOptional, cuSeqlensOptional, chunkIndicesOptional,
-        chunkSize, allowNegEigval, useExp2, outputA, gOut, wOut, uOut, aOut,
+        timerOptional, chunkSize, allowNegEigval, useExp2, outputA, gOut, wOut, uOut, aOut,
         qHatOptional, kHatOptional, qRstdOptional, kRstdOptional, betaEffOptional};
 
     L2_DFX_PHASE_1(aclnnChunkGatedDeltaRuleFwdPrepare,
                    DFX_IN(q, k, v, g, beta, aLogOptional, dtBiasOptional, cuSeqlensOptional,
-                          chunkIndicesOptional, chunkSize, allowNegEigval, useExp2, outputA),
+                          chunkIndicesOptional, timerOptional, chunkSize, allowNegEigval, useExp2, outputA),
                    DFX_OUT(gOut, wOut, uOut, aOut, qHatOptional, kHatOptional, qRstdOptional,
                            kRstdOptional, betaEffOptional));
 
@@ -331,8 +333,8 @@ aclnnStatus aclnnChunkGatedDeltaRuleFwdPrepareGetWorkspaceSize(
 
     auto result = l0op::ChunkGatedDeltaRuleFwdPrepare(
         params.q, params.k, params.v, params.g, params.beta, params.aLogOptional, params.dtBiasOptional,
-        params.cuSeqlensOptional, params.chunkIndicesOptional, params.chunkSize, params.allowNegEigval,
-        params.useExp2, params.qHatOptional != nullptr,
+        params.cuSeqlensOptional, params.chunkIndicesOptional, params.timerOptional, params.chunkSize,
+        params.allowNegEigval, params.useExp2, params.qHatOptional != nullptr,
         params.aLogOptional != nullptr, params.betaEffOptional != nullptr, params.outputA,
         params.gOut, params.wOut, params.uOut, params.aOut, params.qHatOptional, params.kHatOptional, params.qRstdOptional,
         params.kRstdOptional, params.betaEffOptional, executorPtr);

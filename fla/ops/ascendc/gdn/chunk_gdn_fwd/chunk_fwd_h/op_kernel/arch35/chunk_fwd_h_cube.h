@@ -20,6 +20,7 @@
 #include "catlass/gemm/tile/tile_copy.hpp"
 #include "catlass/gemm/tile/tile_mmad.hpp"
 #include "catlass/layout/layout.hpp"
+#include "kernel_utils/gdn_timer/AscendTimerV2_scope.hpp"
 #include "kernel_utils/tile/copy_l0c_to_ub.hpp"
 #include "tla/layout.hpp"
 #include "tla/tensor.hpp"
@@ -36,14 +37,25 @@ public:
         coreNum_ = AscendC::GetBlockNum();
         hasCubeWork_ = args_.tiling.useInitialState || args_.tiling.storeFinalState ||
             args_.tiling.seqlen > static_cast<int64_t>(FWD_H_CHUNK);
+        // 设备侧计时器：本 launch 独占 timer 张量的 SLICE_FWD_H 切片。
+        // timer 为空、或本核没有 Cube 工作时完全不写计时缓冲（该核视为未启用）。
+        if (hasCubeWork_ && args_.timer != nullptr) {
+            timer_.Init(args_.timer + AscendTimer::SliceOffsetWords(AscendTimer::SLICE_FWD_H) *
+                                          static_cast<int64_t>(sizeof(int64_t)));
+            timer_.TikNoBarrier();
+            timerKernelStartCycle_ = timer_.GetStartCycle();
+        }
         if (!hasCubeWork_) {
             return;
         }
         InitEvents();
+        // Init -> InitDone 记为 MAIN_INIT。
+        timer_.TokNoBarrier<AscendTimer::Overwrite>(AscendTimer::MAIN_INIT);
     }
 
     __aicore__ inline void Process()
     {
+        timer_.TikNoBarrier(); // MAIN_BODY 起点（InitDone）
         const FwdHCoreHeadRange range =
             FwdHResolveCoreHeadRange(args_.tiling, coreIdx_, coreNum_);
         const uint32_t headsPerSequence = static_cast<uint32_t>(args_.tiling.vNumHead);
@@ -75,6 +87,11 @@ public:
         if (hasCubeWork_) {
             DrainEvents();
         }
+        // 收尾：MAIN_BODY -> 每 stage 实际迭代次数 -> 带 barrier 的 KERNEL 总窗口。
+        timer_.TokNoBarrier<AscendTimer::Overwrite>(AscendTimer::MAIN_BODY);
+        timer_.PublishCounts();
+        timer_.Tik(timerKernelStartCycle_);
+        timer_.Tok<AscendTimer::Overwrite>(AscendTimer::KERNEL_TIMING_IDX);
     }
 
 private:
@@ -790,6 +807,9 @@ private:
     uint32_t coreIdx_ = 0;
     uint32_t coreNum_ = 1;
     bool hasCubeWork_ = false;
+    // 计时（SLICE_FWD_H 切片）；timer 为空张量时整类退化为无操作。
+    AscendTimerDevice timer_;
+    int64_t timerKernelStartCycle_ = 0;
 };
 
 } // namespace GDN

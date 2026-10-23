@@ -419,7 +419,7 @@ at::Tensor npu_chunk_fwd_o(
     EXEC_NPU_CMD_EXT(
         aclnnChunkFwdO,
         q, k, v, h, g_,
-        cu_seqlens, chunk_indices, scale, chunk_size_,
+        cu_seqlens, chunk_indices, at::Tensor(), scale, chunk_size_,
         use_exp2_, state_v_first_, output_layout_cstr,
         o
     );

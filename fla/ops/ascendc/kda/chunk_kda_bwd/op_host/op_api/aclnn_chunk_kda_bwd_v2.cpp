@@ -202,7 +202,7 @@ extern "C" aclnnStatus aclnnChunkKdaBwdV2GetWorkspaceSize(
             CHECK_RET(value, ACLNN_ERR_INNER_NULLPTR);
         }
         const auto forwardResult = l0op::ChunkFwdH(
-            kg4, w4, u4, nullptr, gk4, nullptr, cu, indices,
+            kg4, w4, u4, nullptr, gk4, nullptr, cu, indices, nullptr,
             false, 64, true, true, false, h5, vNew4, nullptr, ex);
         // finalStateOut is intentionally absent; only h and v_new are required.
         CHECK_RET(forwardResult[0] && forwardResult[1], ACLNN_ERR_INNER_NULLPTR);

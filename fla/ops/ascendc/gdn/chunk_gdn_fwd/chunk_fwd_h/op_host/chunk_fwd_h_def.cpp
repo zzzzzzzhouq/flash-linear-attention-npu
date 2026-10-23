@@ -73,6 +73,13 @@ public:
             .DataType(indexTypes).Format(formats).UnknownShapeFormat(formats)
             .AutoContiguous();
 
+        // 可选 INT64 计时缓冲（kernel_utils/gdn_timer 布局，占 SLICE_FWD_H 切片）。
+        // 传空指针时 kernel 内所有计时点退化为无操作，数值路径不变。
+        this->Input("timer")
+            .ParamType(OPTIONAL)
+            .DataType(indexTypes).Format(formats).UnknownShapeFormat(formats)
+            .AutoContiguous();
+
         this->Output("h")
             .ParamType(REQUIRED)
             .DataType(dataTypes).Format(formats).UnknownShapeFormat(formats);

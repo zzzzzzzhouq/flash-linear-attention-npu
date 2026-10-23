@@ -15,6 +15,7 @@
 #define CHUNK_GATED_DELTA_RULE_FWD_PREPARE_H
 
 #include "kernel_operator.h"
+#include "kernel_utils/gdn_timer/AscendTimerV2_scope.hpp"
 #include "chunk_gated_delta_rule_fwd_prepare_common.h"
 #include "chunk_gated_delta_rule_fwd_prepare_vf.h"
 #include "chunk_gated_delta_rule_fwd_prepare_datacopy.h"
@@ -31,11 +32,18 @@ public:
 
     template <typename Td>
     __aicore__ inline void Init(GM_ADDR q, GM_ADDR k, GM_ADDR v, GM_ADDR g, GM_ADDR beta, GM_ADDR aLog, GM_ADDR dtBias,
-                                GM_ADDR cu, GM_ADDR idx, GM_ADDR gOut, GM_ADDR wOut, GM_ADDR uOut, GM_ADDR aOut,
-                                GM_ADDR qHat, GM_ADDR kHat, GM_ADDR qRstd, GM_ADDR kRstd, GM_ADDR betaEff,
+                                GM_ADDR cu, GM_ADDR idx, GM_ADDR timerAddr, GM_ADDR gOut, GM_ADDR wOut, GM_ADDR uOut,
+                                GM_ADDR aOut, GM_ADDR qHat, GM_ADDR kHat, GM_ADDR qRstd, GM_ADDR kRstd, GM_ADDR betaEff,
                                 GM_ADDR workspace, const Td &td)
     {
         LoadTiling(td);
+        // 设备侧计时器：timerAddr 为空时所有 Tik/Tok 直接返回，数值路径不变。
+        if (timerAddr != nullptr) {
+            timer_.Init(timerAddr + AscendTimer::SliceOffsetWords(AscendTimer::SLICE_PREPARE) *
+                                        static_cast<int64_t>(sizeof(int64_t)));
+            timer_.TikNoBarrier();
+            timerKernelStartCycle_ = timer_.GetStartCycle();
+        }
         InitOnChip();
         GM_ADDR userWs = GetUserWorkspace(workspace);
         const uint32_t wsBase = static_cast<uint32_t>(coreIdx) * kWsPerCoreBytes;
@@ -82,6 +90,8 @@ public:
             gmBetaEff.SetGlobalBuffer(reinterpret_cast<__gm__ float *>(betaEff));
             hasBetaOut = 1;
         }
+        // Init -> InitDone 记为 MAIN_INIT。
+        timer_.TokNoBarrier<AscendTimer::Overwrite>(AscendTimer::MAIN_INIT);
     }
 
     // Explicit on-chip map. Offsets match design Stage 0-3.
@@ -898,12 +908,18 @@ public:
 
     __aicore__ inline void Process()
     {
+        timer_.TikNoBarrier(); // MAIN_BODY 起点（InitDone）
         if ASCEND_IS_AIV {
             ProcessAiv();
         }
         if ASCEND_IS_AIC {
             ProcessAic();
         }
+        // 收尾：MAIN_BODY -> 每 stage 实际迭代次数 -> 带 barrier 的 KERNEL 总窗口。
+        timer_.TokNoBarrier<AscendTimer::Overwrite>(AscendTimer::MAIN_BODY);
+        timer_.PublishCounts();
+        timer_.Tik(timerKernelStartCycle_);
+        timer_.Tok<AscendTimer::Overwrite>(AscendTimer::KERNEL_TIMING_IDX);
     }
 
 private:
@@ -959,6 +975,10 @@ private:
     LocalTensor<float> l0CTask[4];
 
     int64_t hasBetaOut;
+
+    // 计时（SLICE_PREPARE 切片）；timer 为空张量时整类退化为无操作。
+    AscendTimerDevice timer_;
+    int64_t timerKernelStartCycle_ = 0;
 };
 
 } // namespace ChunkGatedDeltaRuleFwdPrepare

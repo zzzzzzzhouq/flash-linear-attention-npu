@@ -46,6 +46,7 @@ struct ChunkFwdHParams {
     bool saveNewValue = true;
     const aclIntArray *cuSeqlensOptional = nullptr;
     const aclIntArray *chunkIndicesOptional = nullptr;
+    const aclTensor *timerOptional = nullptr;
     bool useExp2 = false;
     bool stateVFirst = false;
     const aclTensor *hOut = nullptr;
@@ -396,6 +397,7 @@ aclnnStatus aclnnChunkFwdHGetWorkspaceSize(
     bool saveNewValue,
     const aclIntArray *cuSeqlensOptional,
     const aclIntArray *chunkIndicesOptional,
+    const aclTensor *timerOptional,
     bool useExp2,
     bool stateVFirst,
     const aclTensor *hOut,
@@ -419,6 +421,7 @@ aclnnStatus aclnnChunkFwdHGetWorkspaceSize(
                                          saveNewValue,
                                          cuSeqlensOptional,
                                          chunkIndicesOptional,
+                                         timerOptional,
                                          useExp2,
                                          stateVFirst,
                                          hOut,
@@ -427,7 +430,7 @@ aclnnStatus aclnnChunkFwdHGetWorkspaceSize(
     // Standard syntax, Check parameters.
     L2_DFX_PHASE_1(aclnnChunkFwdH,
                    DFX_IN(k, w, u, gOptional, gkOptional, initialStateOptional, outputFinalState, chunkSize,
-                          saveNewValue, cuSeqlensOptional, chunkIndicesOptional, useExp2, stateVFirst),
+                          saveNewValue, cuSeqlensOptional, chunkIndicesOptional, timerOptional, useExp2, stateVFirst),
                    DFX_OUT(hOut, vNewOut, finalStateOut));
     auto uniqueExecutor = CREATE_EXECUTOR();
     CHECK_RET(uniqueExecutor.get() != nullptr, ACLNN_ERR_INNER_CREATE_EXECUTOR);
@@ -442,8 +445,8 @@ aclnnStatus aclnnChunkFwdHGetWorkspaceSize(
     }
     auto result = l0op::ChunkFwdH(
         params.k, params.w, params.u, params.gOptional, params.gkOptional, params.initialStateOptional,
-        params.cuSeqlensOptional, params.chunkIndicesOptional, params.outputFinalState, params.chunkSize,
-        params.saveNewValue, params.useExp2, params.stateVFirst,
+        params.cuSeqlensOptional, params.chunkIndicesOptional, params.timerOptional, params.outputFinalState,
+        params.chunkSize, params.saveNewValue, params.useExp2, params.stateVFirst,
         params.hOut, params.vNewOut, params.finalStateOut, executorPtr);
     CHECK_RET(result[0] != nullptr && result[1] != nullptr &&
                   (!outputFinalState || result[2] != nullptr),

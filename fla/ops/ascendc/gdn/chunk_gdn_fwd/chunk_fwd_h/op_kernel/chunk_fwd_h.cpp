@@ -81,7 +81,7 @@ template <int D_T_G, int V_DIM, bool USE_GK, bool USE_EXP2, bool STATE_FP32,
           bool STATE_V_FIRST>
 __global__ __aicore__ void chunk_fwd_h(
     GM_ADDR k, GM_ADDR w, GM_ADDR u, GM_ADDR g, GM_ADDR gk, GM_ADDR initial_state,
-    GM_ADDR cu_seqlens, GM_ADDR chunk_indices, GM_ADDR h, GM_ADDR v_new,
+    GM_ADDR cu_seqlens, GM_ADDR chunk_indices, GM_ADDR timer, GM_ADDR h, GM_ADDR v_new,
     GM_ADDR final_state, GM_ADDR workspace, GM_ADDR tiling)
 {
     KERNEL_TASK_TYPE_DEFAULT(KERNEL_TYPE_MIX_AIC_1_2);
@@ -98,6 +98,7 @@ __global__ __aicore__ void chunk_fwd_h(
     args.vNew = v_new;
     args.finalState = final_state;
     args.workspace = AscendC::GetUserWorkspace(workspace);
+    args.timer = timer;
     __gm__ const ChunkFwdHTilingData *tilingData =
         reinterpret_cast<__gm__ const ChunkFwdHTilingData *>(tiling);
     args.tiling.batch = static_cast<uint32_t>(tilingData->batch);

@@ -48,6 +48,7 @@ EXPECTED_PARAMETERS = (
     "initialStateOptional",
     "cuSeqlensOptional",
     "chunkIndicesOptional",
+    "timerOptional",
     "layout",
     "scale",
     "chunkSize",
@@ -70,7 +71,7 @@ EXPECTED_PARAMETERS = (
 )
 
 EXPECTED_CTYPES = (
-    *("ctypes.c_void_p",) * 10,
+    *("ctypes.c_void_p",) * 11,
     "ctypes.c_char_p",
     "ctypes.c_double",
     "ctypes.c_int64",

@@ -22,6 +22,7 @@ const std::array<const aclTensor *, 9> ChunkGatedDeltaRuleFwdPrepare(
     const aclTensor *dtBiasOptional,
     const aclIntArray *cuSeqlensOptional,
     const aclIntArray *chunkIndicesOptional,
+    const aclTensor *timerOptional,
     int64_t chunkSize,
     bool allowNegEigval,
     bool useExp2,
