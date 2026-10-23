@@ -71,6 +71,8 @@ def main():
                         help="已核实的时钟频率；给了才导出 us 与 Perfetto trace")
     parser.add_argument("--shared-clock", action="store_true",
                         help="确认 AIC/AIV 共同时钟后再加，用于 trace")
+    parser.add_argument("--sequential", action="store_true",
+                        help="合并 trace 时把 prepare/fwd_h/fwd_o 按 KERNEL_TIMING 跨度顺序排在一条时间轴上")
     args = parser.parse_args()
 
     import torch  # noqa: F401  （必须先 import torch 再 import torch_npu）
@@ -143,6 +145,7 @@ def main():
     print(f"[INFO] raw -> {raw_path}")
 
     combined_events = []
+    sequential_offset_us = 0.0
     for slice_name in ("prepare", "fwd_h", "fwd_o"):
         slice_index = parse_timer_csv.resolve_slice(slice_name)
         parsed_path = out_dir / f"rank_{args.rank}_{slice_name}_parsed.csv"
@@ -161,10 +164,19 @@ def main():
                 json.dumps({"traceEvents": events, "displayTimeUnit": "us"},
                            ensure_ascii=False, indent=2), encoding="utf-8")
             print(f"[INFO] {slice_name}: {len(events)} trace events -> {trace_path}")
-            # 合并视图：每个 slice 一个独立进程（各自 origin），避免伪造跨 launch 的相对时间。
-            slice_pid = f"rank{args.rank}_{slice_name}"
-            for event in events:
-                event["pid"] = slice_pid
+            # 合并视图：默认每个 slice 一个独立进程（各自 origin）；
+            # --sequential 时改为同一条时间轴，按各 slice 的 KERNEL_TIMING 跨度顺序偏移。
+            if args.sequential:
+                span = max((float(e.get("ts", 0.0)) + float(e.get("dur", 0.0))) for e in events) if events else 0.0
+                for event in events:
+                    event["ts"] = round(float(event.get("ts", 0.0)) + sequential_offset_us, 6)
+                    event["pid"] = f"rank{args.rank}"
+                    event["tid"] = f"{slice_name}_{event.get('tid')}"
+                sequential_offset_us += span + 2.0  # 2us 视觉间隔，非真实 launch 间隔
+            else:
+                slice_pid = f"rank{args.rank}_{slice_name}"
+                for event in events:
+                    event["pid"] = slice_pid
             combined_events.extend(events)
         elif args.cycles_per_us is not None and not args.shared_clock:
             print(f"[INFO] {slice_name}: 未给 --shared-clock，不生成 trace")
