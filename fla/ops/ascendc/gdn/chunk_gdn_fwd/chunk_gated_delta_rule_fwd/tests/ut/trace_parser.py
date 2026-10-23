@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""把 parse_timer_csv.py 产出的逐核 CSV 转成 Chrome trace（Perfetto）JSON。
+"""�?parse_timer_csv.py 产出的逐核 CSV 转成 Chrome trace（Perfetto）JSON�?
 
-每个切片单独出一份 trace：``rank_<r>_<slice>_parsed.csv`` -> ``rank_<r>_<slice>.json``。
-仅在核实了 cycles_per_us 与 AIC/AIV 共同时钟后才使用 ``--shared-clock``。
+每个切片单独出一�?trace：``rank_<r>_<slice>_parsed.csv`` -> ``rank_<r>_<slice>.json``�?
+仅在核实�?cycles_per_us �?AIC/AIV 共同时钟后才使用 ``--shared-clock``�?
 """
 
 import argparse
@@ -138,12 +138,12 @@ def main():
     output_dir.mkdir(parents=True, exist_ok=True)
 
     for slice_name in slices:
-        resolve_slice(slice_name)  # 早失败：切片名必须能映射到 KernelSlice
+        resolve_slice(slice_name)  # 早失败：切片名必须能映射�?KernelSlice
         all_events = []
         for rank in range(args.rank_start, args.rank_end + 1):
             csv_path = timer_dir / f"rank_{rank}_{slice_name}_parsed.csv"
             if not csv_path.exists():
-                print(f"[SKIP] rank_{rank}/{slice_name}: 文件不存在 {csv_path}")
+                print(f"[SKIP] rank_{rank}/{slice_name}: 文件不存�?{csv_path}")
                 continue
             base_cycle = find_min_start(csv_path)
             rank_events = generate_trace_json(csv_path, rank, base_cycle, args.cycles_per_us,
@@ -151,12 +151,12 @@ def main():
             all_events.extend(rank_events)
             rank_output = output_dir / f"rank_{rank}_{slice_name}.json"
             with open(rank_output, "w", encoding="utf-8") as f:
-                json.dump(rank_events, f, indent=2, ensure_ascii=False, allow_nan=False)
+                json.dump({"traceEvents": rank_events, "displayTimeUnit": "us"}, f, indent=2, ensure_ascii=False, allow_nan=False)
             print(f"[INFO] rank_{rank}/{slice_name}: {len(rank_events)} events -> {rank_output}")
 
         merged_output = output_dir / f"{slice_name}_{args.output}"
         with open(merged_output, "w", encoding="utf-8") as f:
-            json.dump(all_events, f, indent=2, ensure_ascii=False, allow_nan=False)
+            json.dump({"traceEvents": all_events, "displayTimeUnit": "us"}, f, indent=2, ensure_ascii=False, allow_nan=False)
         print(f"[INFO] merged {slice_name}: {len(all_events)} events -> {merged_output}")
 
 
