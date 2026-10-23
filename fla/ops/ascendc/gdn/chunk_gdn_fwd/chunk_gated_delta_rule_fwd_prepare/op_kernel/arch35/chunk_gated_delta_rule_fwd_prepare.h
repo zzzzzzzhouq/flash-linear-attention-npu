@@ -266,6 +266,7 @@ public:
         if (auxReady != 0) {
             return;
         }
+        GDN_TIMER_SCOPE(&timer_, AscendTimer::PREP_RESIDENT_AUX);
         FillVcsIdentity(ubIVcs, ubVcsIdx);
         // Leaf zeros first so both AIVs copy in parallel. ubS0Zero is then
         // free for AIV0 to paint I. AIV1 can leave for Stage1 while AIV0
@@ -310,6 +311,7 @@ public:
         if (nValid >= nPad) {
             return;
         }
+        GDN_TIMER_SCOPE(&timer_, AscendTimer::PREP_PAD_TAIL);
         if (OwnsHk(hv)) {
             Duplicate(ubK[db], static_cast<InDtype>(0), nPad * static_cast<int32_t>(K));
             if (useQkL2norm != 0) {
@@ -330,6 +332,8 @@ public:
             WaitAicStage4Done(taskIdx);
             return;
         }
+        // k̂ 归一化 + L1 上传 + q̂ 导出；NotifyAicStage1Done（Cube KKT 放行点）在本窗口内。
+        GDN_TIMER_SCOPE(&timer_, AscendTimer::PREP_K_UPLOAD);
         const int64_t hk = hv / HRatio;
         const int32_t db = PingPongSlot(taskIdx);
         const int32_t nElem = static_cast<int32_t>(chunk.M * K);
@@ -370,6 +374,7 @@ public:
 
     __aicore__ inline void Stage1_GateAndBeta(const ChunkRange &chunk, int64_t hv, int64_t taskIdx)
     {
+        GDN_TIMER_SCOPE(&timer_, AscendTimer::PREP_GATE_BETA);
         const int32_t db = PingPongSlot(taskIdx);
         const int32_t nValid = static_cast<int32_t>(chunk.M);
         const int64_t offG = OffsetBHT(chunk.batch, hv, chunk.tokenStart, HV, T);
@@ -481,8 +486,12 @@ public:
         const int32_t db = PingPongSlot(taskIdx);
         const bool shareBothAiv = (HRatio > 2) || (HRatio == 2 && nThis < kTasksPerRound);
         WaitFlag<HardEvent::M_MTE1>(bank);
-        MatmulToL0C<InDtype>(l1KHat[taskIdx], l1KHat[taskIdx], l0A[bank], l0B[bank], l0CTask[bank], bt, bt, kk, true,
-                             false, false, bank);
+        {
+            // 只包 KKT 的 MMAD 下发，不含前面的 M_MTE1 等待与后面的 dump。
+            GDN_TIMER_SCOPE(&timer_, AscendTimer::PREP_KKT_MM);
+            MatmulToL0C<InDtype>(l1KHat[taskIdx], l1KHat[taskIdx], l0A[bank], l0B[bank], l0CTask[bank], bt, bt, kk,
+                                 true, false, false, bank);
+        }
         SetFlag<HardEvent::M_FIX>(bank);
         SetFlag<HardEvent::M_MTE1>(bank);
         WaitFlag<HardEvent::M_FIX>(bank);
@@ -499,6 +508,7 @@ public:
     // After kkt: L = kkt ⊙ G, pack leaves (must see -L), -L UB→L1, VCS on V.
     __aicore__ inline void Stage3_PrepareGate(int64_t taskIdx)
     {
+        GDN_TIMER_SCOPE(&timer_, AscendTimer::PREP_KKT_GATE);
         const int32_t db = PingPongSlot(taskIdx);
         if (useExp2 != 0) {
             GateLowerLVF<true>(ubGPrime[db], ubBetaEff[db], ubLFull[db]);
@@ -511,6 +521,8 @@ public:
     __aicore__ inline void Stage3_AivOne(int64_t hv, int64_t taskIdx)
     {
         WaitCubeKktDone(taskIdx);
+        // 纯计算窗口：Tik 放在 WaitCubeKktDone 之后，到 NotifyAicStage3Done 之前。
+        GDN_TIMER_SCOPE(&timer_, AscendTimer::PREP_KKT_EPI);
         const int32_t db = PingPongSlot(taskIdx);
         const int32_t kktDb = PingPongSlot(OwnerTaskIdx(hv, taskIdx));
         MulKktGateVF(ubKkt[kktDb], ubLFull[db]);
@@ -544,7 +556,11 @@ public:
         LoadL1NzToL0AB<float>(l1I, l1I, l0Af[0], l0Bf[0], bt, bt, bt, true, false, 0);
         for (int64_t t = 0; t < nThis; ++t) {
             const uint8_t bank = static_cast<uint8_t>(t & 1);
-            MmadL0ABToL0C<float>(l0Af[0], l0Bf[0], l0CTask[t], bt, bt, bt, true, bank);
+            {
+                // 只包 I·I 预填充的 MMAD。
+                GDN_TIMER_SCOPE(&timer_, AscendTimer::PREP_SOLVE_PREFILL);
+                MmadL0ABToL0C<float>(l0Af[0], l0Bf[0], l0CTask[t], bt, bt, bt, true, bank);
+            }
             SetFlag<HardEvent::M_FIX>(bank);
             WaitFlag<HardEvent::M_FIX>(bank);
             SetFlag<HardEvent::FIX_M>(bank);
@@ -557,8 +573,12 @@ public:
         const int32_t bt = static_cast<int32_t>(chunkSize);
         const uint8_t bank = static_cast<uint8_t>(taskIdx & 1);
         WaitFlag<HardEvent::M_MTE1>(bank);
-        MatmulToL0C<float>(l1LeafLeft[taskIdx], l1NegL[taskIdx], l0AfP[bank], l0BfP[bank], l0CTask[taskIdx], bt, bt, bt,
-                           false, true, true, bank);
+        {
+            // Y = I + LeafLeft·(−L) 的 MMAD 下发窗口。
+            GDN_TIMER_SCOPE(&timer_, AscendTimer::PREP_SOLVE_ISSUE);
+            MatmulToL0C<float>(l1LeafLeft[taskIdx], l1NegL[taskIdx], l0AfP[bank], l0BfP[bank], l0CTask[taskIdx],
+                               bt, bt, bt, false, true, true, bank);
+        }
         SetFlag<HardEvent::M_FIX>(bank);
         SetFlag<HardEvent::M_MTE1>(bank);
     }
@@ -567,11 +587,15 @@ public:
     {
         const uint8_t bank = static_cast<uint8_t>(taskIdx & 1);
         WaitFlag<HardEvent::M_FIX>(bank);
-        FixpipeL0cToGmNzCs(gmWsY[WsYOffset(taskIdx)], l0CTask[taskIdx], kChunk64);
-        SetFlag<HardEvent::FIX_M>(bank);
-        SetFlag<HardEvent::FIX_MTE2>(bank);
-        WaitFlag<HardEvent::FIX_MTE2>(bank);
-        CopyGmNzToL1Fp32(l1Y[taskIdx], gmWsY[WsYOffset(taskIdx)], kChunk64);
+        {
+            // L0C → workspace GM → L1 的 dump 窗口。
+            GDN_TIMER_SCOPE(&timer_, AscendTimer::PREP_SOLVE_DUMP);
+            FixpipeL0cToGmNzCs(gmWsY[WsYOffset(taskIdx)], l0CTask[taskIdx], kChunk64);
+            SetFlag<HardEvent::FIX_M>(bank);
+            SetFlag<HardEvent::FIX_MTE2>(bank);
+            WaitFlag<HardEvent::FIX_MTE2>(bank);
+            CopyGmNzToL1Fp32(l1Y[taskIdx], gmWsY[WsYOffset(taskIdx)], kChunk64);
+        }
         NotifyAivStage4Done(taskIdx);
         SetFlag<HardEvent::MTE2_MTE1>(taskIdx);
     }
@@ -587,11 +611,15 @@ public:
         const int32_t bt = static_cast<int32_t>(chunkSize);
         const uint8_t bank = static_cast<uint8_t>(taskIdx & 1);
         WaitFlag<HardEvent::M_MTE1>(bank);
-        MatmulToL0C<float>(l1I, l1LeafLeft[taskIdx], l0Af[bank], l0Bf[bank], l0CTask[taskIdx], bt, bt, bt, true, false,
-                           false, bank);
-        SetFlag<HardEvent::FIX_M>(bank);
-        MatmulToL0C<float>(l1Y[taskIdx], l1LeafRight[taskIdx], l0AfP[bank], l0BfP[bank], l0CTask[taskIdx], bt, bt, bt,
-                           false, false, false, bank);
+        {
+            // (I+L)⁻¹ 的两个 MMAD 下发窗口。
+            GDN_TIMER_SCOPE(&timer_, AscendTimer::PREP_SOLVE);
+            MatmulToL0C<float>(l1I, l1LeafLeft[taskIdx], l0Af[bank], l0Bf[bank], l0CTask[taskIdx], bt, bt, bt, true,
+                               false, false, bank);
+            SetFlag<HardEvent::FIX_M>(bank);
+            MatmulToL0C<float>(l1Y[taskIdx], l1LeafRight[taskIdx], l0AfP[bank], l0BfP[bank], l0CTask[taskIdx], bt, bt,
+                               bt, false, false, false, bank);
+        }
         SetFlag<HardEvent::M_FIX>(bank);
         SetFlag<HardEvent::M_MTE1>(bank);
     }
@@ -616,20 +644,24 @@ public:
         const uint32_t m = static_cast<uint32_t>(chunk.M);
         const int64_t offA = OffsetBHTD(chunk.batch, hv, chunk.tokenStart, HV, T, chunkSize);
         WaitFlag<HardEvent::M_FIX>(bank);
-        if (outputA != 0) {
-            FixpipeL0cToGmNd<InDtype>(gmA[offA], l0CTask[taskIdx], m, n, n);
-            SetFlag<HardEvent::FIX_MTE2>(bank);
-            WaitFlag<HardEvent::FIX_MTE2>(bank);
-            if (m == n) {
-                CopyGmNdToL1Nz<InDtype>(l1A[taskIdx], gmA[offA], n, n);
-                SetFlag<HardEvent::MTE2_MTE1>(taskIdx);
+        {
+            // L0C → GM/L1 的 A dump 窗口。
+            GDN_TIMER_SCOPE(&timer_, AscendTimer::PREP_SOLVE_DUMP);
+            if (outputA != 0) {
+                FixpipeL0cToGmNd<InDtype>(gmA[offA], l0CTask[taskIdx], m, n, n);
+                SetFlag<HardEvent::FIX_MTE2>(bank);
+                WaitFlag<HardEvent::FIX_MTE2>(bank);
+                if (m == n) {
+                    CopyGmNdToL1Nz<InDtype>(l1A[taskIdx], gmA[offA], n, n);
+                    SetFlag<HardEvent::MTE2_MTE1>(taskIdx);
+                } else {
+                    DumpAL0cToL1(taskIdx, n);
+                    SetFlag<HardEvent::FIX_MTE1>(taskIdx);
+                }
             } else {
                 DumpAL0cToL1(taskIdx, n);
                 SetFlag<HardEvent::FIX_MTE1>(taskIdx);
             }
-        } else {
-            DumpAL0cToL1(taskIdx, n);
-            SetFlag<HardEvent::FIX_MTE1>(taskIdx);
         }
         SetFlag<HardEvent::FIX_M>(bank);
     }
@@ -660,25 +692,33 @@ public:
             SetFlag<HardEvent::V_MTE2>(kHeUb0);
             WaitFlag<HardEvent::V_MTE2>(kHeUb0);
         }
-        DataCopy(ubVnd, gmV[offV], nV);
-        SetFlag<HardEvent::MTE2_V>(kHeUb0);
-        WaitFlag<HardEvent::MTE2_V>(kHeUb0);
-        ScaleRowsVF<InDtype>(ubVnd, ubVnd, beta, static_cast<uint32_t>(chunkSize), static_cast<uint32_t>(V));
-        SetFlag<HardEvent::V_MTE3>(kHeUb0);
-        WaitFlag<HardEvent::V_MTE3>(kHeUb0);
-        UploadBf16NdToL1(l1Vb[taskIdx], ubVnd, static_cast<uint32_t>(V));
-
-        DataCopy(ubKnd, gmKHat[offK], nK);
-        SetFlag<HardEvent::MTE2_V>(kHeUb1);
-        WaitFlag<HardEvent::MTE2_V>(kHeUb1);
-        if (useExp2 != 0) {
-            ScaleRowsBetaExp2gVF<InDtype, true>(ubKnd, ubKnd, beta, g, static_cast<uint32_t>(chunkSize));
-        } else {
-            ScaleRowsBetaExp2gVF<InDtype, false>(ubKnd, ubKnd, beta, g, static_cast<uint32_t>(chunkSize));
+        {
+            // vb 段：v·β（GM→UB→L1），窗口到 UploadBf16NdToL1(l1Vb) 为止。
+            GDN_TIMER_SCOPE(&timer_, AscendTimer::PREP_WU_V);
+            DataCopy(ubVnd, gmV[offV], nV);
+            SetFlag<HardEvent::MTE2_V>(kHeUb0);
+            WaitFlag<HardEvent::MTE2_V>(kHeUb0);
+            ScaleRowsVF<InDtype>(ubVnd, ubVnd, beta, static_cast<uint32_t>(chunkSize), static_cast<uint32_t>(V));
+            SetFlag<HardEvent::V_MTE3>(kHeUb0);
+            WaitFlag<HardEvent::V_MTE3>(kHeUb0);
+            UploadBf16NdToL1(l1Vb[taskIdx], ubVnd, static_cast<uint32_t>(V));
         }
-        SetFlag<HardEvent::V_MTE3>(kHeUb1);
-        WaitFlag<HardEvent::V_MTE3>(kHeUb1);
-        UploadBf16NdToL1(l1Kbg[taskIdx], ubKnd, static_cast<uint32_t>(K));
+
+        {
+            // kbg 段：k̂·β·e^g（GM→UB→L1），窗口从 DataCopy(ubKnd) 起。
+            GDN_TIMER_SCOPE(&timer_, AscendTimer::PREP_WU_K);
+            DataCopy(ubKnd, gmKHat[offK], nK);
+            SetFlag<HardEvent::MTE2_V>(kHeUb1);
+            WaitFlag<HardEvent::MTE2_V>(kHeUb1);
+            if (useExp2 != 0) {
+                ScaleRowsBetaExp2gVF<InDtype, true>(ubKnd, ubKnd, beta, g, static_cast<uint32_t>(chunkSize));
+            } else {
+                ScaleRowsBetaExp2gVF<InDtype, false>(ubKnd, ubKnd, beta, g, static_cast<uint32_t>(chunkSize));
+            }
+            SetFlag<HardEvent::V_MTE3>(kHeUb1);
+            WaitFlag<HardEvent::V_MTE3>(kHeUb1);
+            UploadBf16NdToL1(l1Kbg[taskIdx], ubKnd, static_cast<uint32_t>(K));
+        }
     }
 
     // ========================= Stage 7 =========================
@@ -704,8 +744,12 @@ public:
         wuFixpipeParams.params.srcNdStride = 0;
         wuFixpipeParams.params.dstNdStride = 0;
         WaitFlag<HardEvent::M_MTE1>(0);
-        WuMatmulToL0C<InDtype>(l1A[taskIdx], l1Kbg[taskIdx], l0AS7[0], l0BS7[0], l0CS7[0], bt, static_cast<int32_t>(nK),
-                               bt, 0);
+        {
+            // W = A·kbg：只包 MMAD 下发，不含前面的 M_MTE1 等待。
+            GDN_TIMER_SCOPE(&timer_, AscendTimer::PREP_W_ISSUE);
+            WuMatmulToL0C<InDtype>(l1A[taskIdx], l1Kbg[taskIdx], l0AS7[0], l0BS7[0], l0CS7[0], bt,
+                                   static_cast<int32_t>(nK), bt, 0);
+        }
         SetFlag<HardEvent::M_FIX>(0);
         WaitFlag<HardEvent::M_FIX>(0);
         Fixpipe<InDtype, float, CFG_ROW_MAJOR_UB>(ubS7W[db], l0CS7[0], wuFixpipeParams);
@@ -715,8 +759,12 @@ public:
         wuFixpipeParams.nSize = kGdnHeadDimK;
         wuFixpipeParams.dstStride = nV;
         WaitFlag<HardEvent::M_MTE1>(1);
-        WuMatmulToL0C<InDtype>(l1A[taskIdx], l1Vb[taskIdx], l0AS7[1], l0BS7[1], l0CS7[1], bt,
-                               static_cast<int32_t>(kGdnHeadDimK), bt, 1);
+        {
+            // U = A·vb：只包 MMAD 下发。
+            GDN_TIMER_SCOPE(&timer_, AscendTimer::PREP_U_ISSUE);
+            WuMatmulToL0C<InDtype>(l1A[taskIdx], l1Vb[taskIdx], l0AS7[1], l0BS7[1], l0CS7[1], bt,
+                                   static_cast<int32_t>(kGdnHeadDimK), bt, 1);
+        }
         SetFlag<HardEvent::M_FIX>(1);
         SetFlag<HardEvent::M_MTE1>(1);
         WaitFlag<HardEvent::M_FIX>(1);
@@ -730,8 +778,12 @@ public:
             WaitFlag<HardEvent::FIX_MTE2>(1);
             SetFlag<HardEvent::FIX_M>(1);
             WaitFlag<HardEvent::M_MTE1>(1);
-            WuMatmulToL0C<InDtype>(l1A[taskIdx], l1Vb1[taskIdx], l0AS7[1], l0BS7[1], l0CS7[1], bt,
-                                   static_cast<int32_t>(kGdnHeadDimK), bt, 1);
+            {
+                // V=256 的 U 后半块，同为 PREP_U_ISSUE。
+                GDN_TIMER_SCOPE(&timer_, AscendTimer::PREP_U_ISSUE);
+                WuMatmulToL0C<InDtype>(l1A[taskIdx], l1Vb1[taskIdx], l0AS7[1], l0BS7[1], l0CS7[1], bt,
+                                       static_cast<int32_t>(kGdnHeadDimK), bt, 1);
+            }
             SetFlag<HardEvent::M_FIX>(1);
             SetFlag<HardEvent::M_MTE1>(1);
             WaitFlag<HardEvent::M_FIX>(1);
@@ -769,6 +821,7 @@ public:
 
     __aicore__ inline void DrainPackWuToGm(int64_t base, int64_t nThis)
     {
+        GDN_TIMER_SCOPE(&timer_, AscendTimer::PREP_WU_DRAIN);
         for (int64_t t = subBlock; t < nThis; t += 2) {
             ChunkRange chunk;
             int64_t hv;
