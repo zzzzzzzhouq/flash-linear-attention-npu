@@ -39,7 +39,7 @@ public:
         LoadTiling(td);
         // 设备侧计时器：timerAddr 为空时所有 Tik/Tok 直接返回，数值路径不变。
         if (timerAddr != nullptr) {
-            timer_.Init(timerAddr + AscendTimer::SliceOffsetWords(AscendTimer::SLICE_PREPARE) *
+            timer_.Init(timerAddr + ASCEND_TIMER_SLICE_OFFSET_WORDS(AscendTimer::SLICE_PREPARE) *
                                         static_cast<int64_t>(sizeof(int64_t)));
             timer_.TikNoBarrier();
             timerKernelStartCycle_ = timer_.GetStartCycle();

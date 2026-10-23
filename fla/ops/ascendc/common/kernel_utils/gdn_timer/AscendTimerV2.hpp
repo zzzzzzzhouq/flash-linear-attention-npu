@@ -85,10 +85,9 @@ static constexpr int64_t SLICE_WORDS = static_cast<int64_t>(N_TIMING_COUNTER) + 
 static constexpr int64_t TOTAL_BUFFER_WORDS = SLICE_WORDS * KERNEL_SLICE_COUNT;
 
 // 切片在 timer 张量中的 int64 偏移（host 与 kernel 共用）。
-static constexpr int64_t SliceOffsetWords(KernelSlice slice)
-{
-    return static_cast<int64_t>(slice) * SLICE_WORDS;
-}
+// 用宏而非 constexpr 函数：部分 CCE 编译选项下不会内联，链接期会报未定义符号。
+#define ASCEND_TIMER_SLICE_OFFSET_WORDS(slice) \
+    (static_cast<int64_t>(slice) * AscendTimer::SLICE_WORDS)
 } // namespace AscendTimer
 
 // ========== 4. 计时开关宏 ==========
