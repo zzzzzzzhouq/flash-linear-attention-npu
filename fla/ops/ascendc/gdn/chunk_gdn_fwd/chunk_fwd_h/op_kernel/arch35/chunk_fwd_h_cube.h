@@ -37,8 +37,8 @@ public:
         coreNum_ = AscendC::GetBlockNum();
         hasCubeWork_ = args_.tiling.useInitialState || args_.tiling.storeFinalState ||
             args_.tiling.seqlen > static_cast<int64_t>(FWD_H_CHUNK);
-        // 设备侧计时器：本 launch 独占 timer 张量的 SLICE_FWD_H 切片。
-        // timer 为空、或本核没有 Cube 工作时完全不写计时缓冲（该核视为未启用）。
+        // 设备侧计时器：本 launch 独占 timer 张量�?SLICE_FWD_H 切片�?
+        // timer 为空、或本核没有 Cube 工作时完全不写计时缓冲（该核视为未启用）�?
         if (hasCubeWork_ && args_.timer != nullptr) {
             timer_.Init(args_.timer + AscendTimer::SliceOffsetWords(AscendTimer::SLICE_FWD_H) *
                                           static_cast<int64_t>(sizeof(int64_t)));
@@ -49,13 +49,13 @@ public:
             return;
         }
         InitEvents();
-        // Init -> InitDone 记为 MAIN_INIT。
-        timer_.TokNoBarrier<AscendTimer::Overwrite>(AscendTimer::MAIN_INIT);
+        // Init -> InitDone 记为 MAIN_INIT�?
+        timer_.TokNoBarrier<Overwrite>(AscendTimer::MAIN_INIT);
     }
 
     __aicore__ inline void Process()
     {
-        timer_.TikNoBarrier(); // MAIN_BODY 起点（InitDone）
+        timer_.TikNoBarrier(); // MAIN_BODY 起点（InitDone�?
         const FwdHCoreHeadRange range =
             FwdHResolveCoreHeadRange(args_.tiling, coreIdx_, coreNum_);
         const uint32_t headsPerSequence = static_cast<uint32_t>(args_.tiling.vNumHead);
@@ -87,11 +87,11 @@ public:
         if (hasCubeWork_) {
             DrainEvents();
         }
-        // 收尾：MAIN_BODY -> 每 stage 实际迭代次数 -> 带 barrier 的 KERNEL 总窗口。
-        timer_.TokNoBarrier<AscendTimer::Overwrite>(AscendTimer::MAIN_BODY);
+        // 收尾：MAIN_BODY -> �?stage 实际迭代次数 -> �?barrier �?KERNEL 总窗口�?
+        timer_.TokNoBarrier<Overwrite>(AscendTimer::MAIN_BODY);
         timer_.PublishCounts();
         timer_.Tik(timerKernelStartCycle_);
-        timer_.Tok<AscendTimer::Overwrite>(AscendTimer::KERNEL_TIMING_IDX);
+        timer_.Tok<Overwrite>(AscendTimer::KERNEL_TIMING_IDX);
     }
 
 private:
@@ -110,8 +110,8 @@ private:
         ArchTag, bfloat16_t, LayoutLeftS2, bfloat16_t, LayoutRightS2, float, LayoutOutput>;
     using ElementAccumulator = typename TileS2::ElementAccumulator;
 
-    // FP32 state 时，每个 AIV 用两个 64 KiB bank 常驻本轮两个 head 的 state。
-    // 两个 head 的 P/D 按生产消费顺序复用同一个 64 KiB 数据槽，释放另一个槽给 state。
+    // FP32 state 时，每个 AIV 用两�?64 KiB bank 常驻本轮两个 head �?state�?
+    // 两个 head �?P/D 按生产消费顺序复用同一�?64 KiB 数据槽，释放另一个槽�?state�?
     __aicore__ inline uint32_t DataSlot(const FwdHHeadBinding &head) const
     {
         if constexpr (CompilePolicy::STATE_FP32) {
@@ -161,9 +161,9 @@ private:
     static constexpr uint32_t L0B_SLOT_BYTES = FWD_H_K * FWD_H_V * sizeof(bfloat16_t);
     static constexpr uint32_t L0C_SLOT_BYTES = FWD_H_K * FWD_H_V * sizeof(ElementAccumulator);
 
-    // 每种 HardEvent 拥有独立的事件空间，因此反向事件可以复用同一数值 ID。
+    // 每种 HardEvent 拥有独立的事件空间，因此反向事件可以复用同一数�?ID�?
     // MTE1<->MTE2：W 使用 0..3，H/right 使用 4..5；MTE1<->M：L0A 使用
-    // 0..1、L0B 使用 2..3；M<->FIX：两个流水槽使用 0..1。
+    // 0..1、L0B 使用 2..3；M<->FIX：两个流水槽使用 0..1�?
     __aicore__ inline AscendC::TEventID WReadyEvent(uint32_t slot) const
     {
         return static_cast<AscendC::TEventID>(slot);
@@ -306,7 +306,7 @@ private:
             AscendC::WaitFlag<AscendC::HardEvent::M_MTE1>(L0BFreeEvent(slot));
             AscendC::WaitFlag<AscendC::HardEvent::FIX_M>(FixFreeEvent(slot));
         }
-        // 固定 EventID 已全部回收到初始 free 状态，下一次 kernel launch 可重新使用。
+        // 固定 EventID 已全部回收到初始 free 状态，下一�?kernel launch 可重新使用�?
     }
 
     __aicore__ inline uint64_t WOffset(const FwdHWorkUnit &unit, const FwdHChunkSpan &chunk,
@@ -331,12 +331,12 @@ private:
         return FwdHHOffset(args_.tiling, unit.sequence, head.hv, chunk.globalChunk);
     }
 
-    // 保留 leaf stage 调用边界，使 TLA 临时对象在各 head/stage 之间复用标量栈区。
+    // 保留 leaf stage 调用边界，使 TLA 临时对象在各 head/stage 之间复用标量栈区�?
     __aicore__ inline void LoadStage0W(
         const FwdHWorkUnit &unit, const FwdHChunkSpan &chunk, const FwdHHeadBinding &head,
         uint32_t wSlot)
     {
-        // W 与递推 H 使用独立 L1/event 槽；W 可在 H_READY 到达前跨 chunk 预取。
+        // W 与递推 H 使用独立 L1/event 槽；W 可在 H_READY 到达前跨 chunk 预取�?
         AscendC::WaitFlag<AscendC::HardEvent::MTE1_MTE2>(WReadyEvent(wSlot));
         AscendC::GlobalTensor<bfloat16_t> gmW;
         gmW.SetGlobalBuffer(reinterpret_cast<__gm__ bfloat16_t *>(args_.w) + WOffset(unit, chunk, head));
@@ -351,7 +351,7 @@ private:
         auto tensorL1W = tla::MakeTensor(L1W(wSlot), L1_W_LAYOUT, Catlass::Arch::PositionL1{});
         CopyGmToL1AS0<decltype(blockW)> copyW;
         {
-            // W 的 GM→L1 预取（MTE2 下发窗口）。
+            // W �?GM→L1 预取（MTE2 下发窗口）�?
             GDN_TIMER_SCOPE(&timer_, AscendTimer::FWH_PREFETCH);
             copyW(tensorL1W, blockW);
         }
@@ -387,8 +387,8 @@ private:
         const FwdHWorkUnit &unit, const FwdHChunkSpan &chunk, const FwdHHeadBinding &head,
         uint32_t pipelineSlot, uint32_t wSlot, uint32_t hSlot)
     {
-        // Stage0 计算：Pacc_c,h = W_c,h @ H_c,h，BF16 x BF16 -> FP32；
-        // 随后按 StateT 转为 PType，Fixpipe 直接写入该 head 所属 AIV 的 local slot。
+        // Stage0 计算：Pacc_c,h = W_c,h @ H_c,h，BF16 x BF16 -> FP32�?
+        // 随后�?StateT 转为 PType，Fixpipe 直接写入�?head 所�?AIV �?local slot�?
         const uint32_t m = FwdHAlignCube(chunk.validTokens);
         auto tensorL1W = tla::MakeTensor(L1W(wSlot), L1_W_LAYOUT, Catlass::Arch::PositionL1{});
         auto tensorL1H = tla::MakeTensor(L1HRight(hSlot), L1_H_LAYOUT, Catlass::Arch::PositionL1{});
@@ -416,7 +416,7 @@ private:
         AscendC::WaitFlag<AscendC::HardEvent::MTE1_M>(L0BReadyEvent(pipelineSlot));
         AscendC::WaitFlag<AscendC::HardEvent::FIX_M>(FixFreeEvent(pipelineSlot));
         {
-            // C1：P = w·S 的 MMAD 下发；窗口不含上面任何 W/H/L0/MTE1_M 等待。
+            // C1：P = w·S �?MMAD 下发；窗口不含上面任�?W/H/L0/MTE1_M 等待�?
             GDN_TIMER_SCOPE(&timer_, AscendTimer::FWH_WH_MM);
             TileMmadS0 mmad;
             mmad(tensorL0C, tensorL0A, tensorL0B, true, 0);
@@ -428,19 +428,19 @@ private:
         if constexpr (CompilePolicy::STATE_FP32) {
             if (head.localSlot == 0) {
                 if (!chunk.first) {
-                    // 每个 AIV 的首个 head 复用上一 chunk 最后一个 head 释放的 D 槽。
+                    // 每个 AIV 的首�?head 复用上一 chunk 最后一�?head 释放�?D 槽�?
                     const uint32_t lastLocalSlot =
                         FwdHAivHeadCount(unit.headRound.activeHeadCount, head.aiv) - 1;
                     AscendC::CrossCoreWaitFlag<0x4, PIPE_FIX>(
                         FwdHAicPeerFlag(FWD_H_D_FREE_FLAG, lastLocalSlot, head.aiv));
                 }
             } else {
-                // 同一 chunk 的第二个 head 等首个 head 的 P 被 AIV 消费后再覆盖数据槽。
+                // 同一 chunk 的第二个 head 等首�?head �?P �?AIV 消费后再覆盖数据槽�?
                 AscendC::CrossCoreWaitFlag<0x4, PIPE_FIX>(
                     FwdHAicPeerFlag(FWD_H_P_FREE_FLAG, head.localSlot - 1, head.aiv));
             }
         } else if (!chunk.first) {
-            // 首 chunk 的 initial_state 还没有前序消费者；后续 chunk 复用的是前一轮的 D slot。
+            // �?chunk �?initial_state 还没有前序消费者；后续 chunk 复用的是前一轮的 D slot�?
             AscendC::CrossCoreWaitFlag<0x4, PIPE_FIX>(
                 FwdHAicPeerFlag(FWD_H_D_FREE_FLAG, DataSlot(head), head.aiv));
         }
@@ -460,7 +460,7 @@ private:
 
     __aicore__ inline void RunStage0(const FwdHWorkUnit &unit, const FwdHChunkSpan &chunk)
     {
-        // Stage0：H_c=cast_BF16(R_c)，P_c=W_c@H_c；Cube 使用 BF16 输入、FP32 累加。
+        // Stage0：H_c=cast_BF16(R_c)，P_c=W_c@H_c；Cube 使用 BF16 输入、FP32 累加�?
         if (chunk.first && args_.tiling.useInitialState == 0) {
             return;
         }
@@ -482,7 +482,7 @@ private:
     __aicore__ inline void LoadKg(
         const FwdHWorkUnit &unit, const FwdHChunkSpan &chunk, const FwdHKgBinding &binding)
     {
-        // Stage2 搬运：只加载本轮 requiredKh[] 中实际存在的 k_raw/kg；slot 不跨 round 保留。
+        // Stage2 搬运：只加载本轮 requiredKh[] 中实际存在的 k_raw/kg；slot 不跨 round 保留�?
         const uint32_t slot = binding.slot;
         AscendC::WaitFlag<AscendC::HardEvent::MTE1_MTE2>(WReadyEvent(slot));
         if (chunk.validTokens < FWD_H_CHUNK) {
@@ -513,7 +513,7 @@ private:
                                             Catlass::Arch::PositionL1{});
             CopyGmToL1AS2<decltype(blockGm)> copy;
             {
-                // K（kg）的 GM→L1 预取（MTE2 下发窗口）。
+                // K（kg）的 GM→L1 预取（MTE2 下发窗口）�?
                 GDN_TIMER_SCOPE(&timer_, AscendTimer::FWH_PREFETCH);
                 copy(tensorL1, blockGm);
             }
@@ -526,7 +526,7 @@ private:
                                             Catlass::Arch::PositionL1{});
             CopyGmToL1BS2<decltype(blockGm)> copy;
             {
-                // K（kg）的 GM→L1 预取（MTE2 下发窗口），STATE_V_FIRST 变体。
+                // K（kg）的 GM→L1 预取（MTE2 下发窗口），STATE_V_FIRST 变体�?
                 GDN_TIMER_SCOPE(&timer_, AscendTimer::FWH_PREFETCH);
                 copy(tensorL1, blockGm);
             }
@@ -537,7 +537,7 @@ private:
     __aicore__ inline void LoadRight(
         const FwdHChunkSpan &chunk, const FwdHHeadBinding &head, uint32_t hSlot)
     {
-        // Stage2 搬运：等待本 head 的 Stage1 MTE3 后，从 GM ND 搬入当前 H/right L1 槽。
+        // Stage2 搬运：等待本 head �?Stage1 MTE3 后，�?GM ND 搬入当前 H/right L1 槽�?
         AscendC::CrossCoreWaitFlag<0x4, PIPE_MTE2>(
             FwdHAicPeerFlag(FWD_H_RIGHT_READY_FLAG, head.localSlot, head.aiv));
         AscendC::WaitFlag<AscendC::HardEvent::MTE1_MTE2>(HRightReadyEvent(hSlot));
@@ -574,8 +574,8 @@ private:
         const FwdHWorkUnit &unit, const FwdHChunkSpan &chunk, const FwdHHeadBinding &head,
         const FwdHKgBinding &binding, uint32_t hSlot, uint32_t pipelineSlot, bool stage0Ran)
     {
-        // Stage2 计算：state_v_first=false 时 D=kg^T@right，输出 [K,V]；
-        // state_v_first=true 时交换两个输入，计算 right^T@kg，输出物理 [V,K]。
+        // Stage2 计算：state_v_first=false �?D=kg^T@right，输�?[K,V]�?
+        // state_v_first=true 时交换两个输入，计算 right^T@kg，输出物�?[V,K]�?
         const uint32_t m = FWD_H_K;
         const uint32_t k = FwdHAlignCube(chunk.validTokens);
         auto layoutL0A = tla::MakeLayout<bfloat16_t, typename TileS2::LayoutTagL0A>(m, k);
@@ -594,8 +594,8 @@ private:
         CopyL1ToL0AS2 copyA;
         CopyL1ToL0BS2 copyB;
         if constexpr (STATE_V_FIRST) {
-            // LoadRight 已将 GM ND right[M,V] 按 ColumnMajor 映射为 L1[V,M]，
-            // kg 保持 GM ND[M,K]，Cube 直接执行 [V,M]@[M,K] -> [V,K]。
+            // LoadRight 已将 GM ND right[M,V] �?ColumnMajor 映射�?L1[V,M]�?
+            // kg 保持 GM ND[M,K]，Cube 直接执行 [V,M]@[M,K] -> [V,K]�?
             auto tensorRight = tla::MakeTensor(L1HRight(hSlot), L1_LEFT_S2_LAYOUT,
                                                Catlass::Arch::PositionL1{});
             auto tensorKg = tla::MakeTensor(L1Kg(binding.slot), L1_RIGHT_S2_LAYOUT,
@@ -626,7 +626,7 @@ private:
         AscendC::WaitFlag<AscendC::HardEvent::MTE1_M>(L0BReadyEvent(pipelineSlot));
         AscendC::WaitFlag<AscendC::HardEvent::FIX_M>(FixFreeEvent(pipelineSlot));
         {
-            // C2：D = kᵀ·v_new 的 MMAD 下发；窗口不含上面任何 L0/MTE2/MTE1_M 等待。
+            // C2：D = kᵀ·v_new �?MMAD 下发；窗口不含上面任�?L0/MTE2/MTE1_M 等待�?
             GDN_TIMER_SCOPE(&timer_, AscendTimer::FWH_KV_MM);
             TileMmadS2 mmad;
             mmad(tensorL0C, tensorL0A, tensorL0B, true, 0);
@@ -638,19 +638,19 @@ private:
         if constexpr (CompilePolicy::STATE_FP32) {
             if (head.localSlot == 0) {
                 if (stage0Ran) {
-                    // 首个 D 等同一 AIV 的最后一个 P 被消费，保证 P/D 共用槽已空闲。
+                    // 首个 D 等同一 AIV 的最后一�?P 被消费，保证 P/D 共用槽已空闲�?
                     const uint32_t lastLocalSlot =
                         FwdHAivHeadCount(unit.headRound.activeHeadCount, head.aiv) - 1;
                     AscendC::CrossCoreWaitFlag<0x4, PIPE_FIX>(
                         FwdHAicPeerFlag(FWD_H_P_FREE_FLAG, lastLocalSlot, head.aiv));
                 }
             } else {
-                // 第二个 D 等首个 D 被 AIV 消费；首 chunk 无 P 时也必须执行此等待。
+                // 第二�?D 等首�?D �?AIV 消费；首 chunk �?P 时也必须执行此等待�?
                 AscendC::CrossCoreWaitFlag<0x4, PIPE_FIX>(
                     FwdHAicPeerFlag(FWD_H_D_FREE_FLAG, head.localSlot - 1, head.aiv));
             }
         } else if (stage0Ran) {
-            // Stage0 写入 P 后由 Stage1 发布 P_FREE；只有此时 Stage2 才能复用同一 UB slot 写 D。
+            // Stage0 写入 P 后由 Stage1 发布 P_FREE；只有此�?Stage2 才能复用同一 UB slot �?D�?
             AscendC::CrossCoreWaitFlag<0x4, PIPE_FIX>(
                 FwdHAicPeerFlag(FWD_H_P_FREE_FLAG, DataSlot(head), head.aiv));
         }
@@ -669,7 +669,7 @@ private:
     __aicore__ inline void RunStage2(const FwdHWorkUnit &unit, const FwdHChunkSpan &chunk,
                                      bool stage0Ran)
     {
-        // Stage2：g-only 计算 D_c=k_raw_c^T@V_new_g；gk-only 计算 D_c=kg_c^T@V_new。
+        // Stage2：g-only 计算 D_c=k_raw_c^T@V_new_g；gk-only 计算 D_c=kg_c^T@V_new�?
         for (uint32_t kgSlot = 0; kgSlot < unit.headRound.requiredKhCount; ++kgSlot) {
             LoadKg(unit, chunk, FwdHBuildKgBinding(unit.headRound, kgSlot));
         }
@@ -705,9 +705,9 @@ private:
 
     __aicore__ inline void ProcessSingleHeadPipeline(const FwdHWorkUnit &unit)
     {
-        // 单 head 稳态：W 在 0/1、K 在 2/3 按 chunk 奇偶轮转。当前 right 的
-        // GM->L1 发射后立即排入下一 chunk 的 W/K，令 MTE2 lookahead 与本轮
-        // MTE1/MMAD/Fixpipe 重叠；递推 H 仍严格等待上一 Stage3 的 H_READY。
+        // �?head 稳态：W �?0/1、K �?2/3 �?chunk 奇偶轮转。当�?right �?
+        // GM->L1 发射后立即排入下一 chunk �?W/K，令 MTE2 lookahead 与本�?
+        // MTE1/MMAD/Fixpipe 重叠；递推 H 仍严格等待上一 Stage3 �?H_READY�?
         const FwdHHeadBinding &head = unit.headRound.heads[0];
         const FwdHChunkSpan first = FwdHBuildChunk(unit.sequence, 0);
         if (!(first.first && args_.tiling.useInitialState == 0)) {
@@ -780,7 +780,7 @@ private:
         const bool terminalStage2 = args_.tiling.storeFinalState != 0;
         const bool terminalStage0 = args_.tiling.useInitialState != 0 || unit.sequence.chunkCount > 1;
         if constexpr (CompilePolicy::STATE_FP32) {
-            // 同一 AIV 的前一个 head 已在槽内复用点消费 free credit；round 尾只收最后一代。
+            // 同一 AIV 的前一�?head 已在槽内复用点消�?free credit；round 尾只收最后一代�?
             for (uint32_t aiv = 0; aiv < FWD_H_AIV_COUNT; ++aiv) {
                 if (unit.headRound.activeHeadCount <= aiv) {
                     continue;
@@ -810,12 +810,12 @@ private:
             }
         }
         if (hasNextWorkUnit) {
-            // PIPE_S 将 round 握手放到控制流水，阻止下一轮 MTE2 预取越过 DONE/ACK。
+            // PIPE_S �?round 握手放到控制流水，阻止下一�?MTE2 预取越过 DONE/ACK�?
             AscendC::CrossCoreWaitFlag<0x4, PIPE_S>(
                 FwdHAicPeerFlag(FWD_H_ROUND_DONE_FLAG, 0, 0));
             AscendC::CrossCoreWaitFlag<0x4, PIPE_S>(
                 FwdHAicPeerFlag(FWD_H_ROUND_DONE_FLAG, 0, 1));
-            // ACK 表示 AIC 已完成本轮消费；AIV 收到后才可复用下一轮的本地槽。
+            // ACK 表示 AIC 已完成本轮消费；AIV 收到后才可复用下一轮的本地槽�?
             AscendC::CrossCoreSetFlag<0x4, PIPE_S>(
                 FwdHAicPeerFlag(FWD_H_ROUND_ACK_FLAG, 0, 0));
             AscendC::CrossCoreSetFlag<0x4, PIPE_S>(
@@ -827,7 +827,7 @@ private:
     uint32_t coreIdx_ = 0;
     uint32_t coreNum_ = 1;
     bool hasCubeWork_ = false;
-    // 计时（SLICE_FWD_H 切片）；timer 为空张量时整类退化为无操作。
+    // 计时（SLICE_FWD_H 切片）；timer 为空张量时整类退化为无操作�?
     AscendTimerDevice timer_;
     int64_t timerKernelStartCycle_ = 0;
 };

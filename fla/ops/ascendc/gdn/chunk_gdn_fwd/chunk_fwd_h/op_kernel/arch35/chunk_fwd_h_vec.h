@@ -164,11 +164,11 @@ __simd_vf__ inline void FwdHStage1Arch35Vf(__ubuf__ bfloat16_t *uAndVNew,
                                            uint16_t validTokens)
 {
     // Stage1:
-    //   V_new_fp32[i,:] = fp32(U[i,:]) - fp32(P[i,:])，HAS_P=false 时 P=0；
-    //   V_new[i,:] = cast_BF16(V_new_fp32[i,:])；
-    //   g-only: right[i,:] = cast_BF16(E(g_last-g_i) * V_new_fp32[i,:])，alpha=E(g_last)；
-    //   gk-only: right=V_new。E 由 USE_EXP2 在编译期选择。
-    // 本 VF 覆盖当前 head 的全部 MTE2 后向量计算，内部没有运行期分支。
+    //   V_new_fp32[i,:] = fp32(U[i,:]) - fp32(P[i,:])，HAS_P=false �?P=0�?
+    //   V_new[i,:] = cast_BF16(V_new_fp32[i,:])�?
+    //   g-only: right[i,:] = cast_BF16(E(g_last-g_i) * V_new_fp32[i,:])，alpha=E(g_last)�?
+    //   gk-only: right=V_new。E �?USE_EXP2 在编译期选择�?
+    // �?VF 覆盖当前 head 的全�?MTE2 后向量计算，内部没有运行期分支�?
     constexpr uint16_t BF16_PER_REG = AscendC::VECTOR_REG_WIDTH / sizeof(bfloat16_t);
     constexpr uint16_t STATE_ROWS = FWD_H_STATE_BF16_BYTES / sizeof(bfloat16_t) / BF16_PER_REG;
     MaskReg mask16 = CreateMask<bfloat16_t, MaskPattern::ALL>();
@@ -234,10 +234,10 @@ __simd_vf__ inline void FwdHStage3Arch35Vf(__ubuf__ bfloat16_t *stateBf16,
                                            __ubuf__ bfloat16_t *hNext)
 {
     // Stage3:
-    //   g-only: R_next = alpha * R + D，alpha=E(g_last)；
-    //   gk-only: R_next[k,v] = E(gk_last[k]) * R[k,v] + D[k,v]；
-    //   WRITE_H 时 H_next = cast_BF16(R_next)。
-    // STATE_V_FIRST=true 时 state、D 和 H 都以物理 [V,K] 顺序处理，公式语义仍为 [K,V]。
+    //   g-only: R_next = alpha * R + D，alpha=E(g_last)�?
+    //   gk-only: R_next[k,v] = E(gk_last[k]) * R[k,v] + D[k,v]�?
+    //   WRITE_H �?H_next = cast_BF16(R_next)�?
+    // STATE_V_FIRST=true �?state、D �?H 都以物理 [V,K] 顺序处理，公式语义仍�?[K,V]�?
     constexpr uint16_t BF16_PER_REG = AscendC::VECTOR_REG_WIDTH / sizeof(bfloat16_t);
     constexpr uint16_t ROWS = 128;
     MaskReg mask16 = CreateMask<bfloat16_t, MaskPattern::ALL>();
@@ -253,8 +253,8 @@ __simd_vf__ inline void FwdHStage3Arch35Vf(__ubuf__ bfloat16_t *stateBf16,
         LoadIn<float, true>(gate0, alpha);
         Adds(gate1, gate0, 0.0f, mask32);
     } else if constexpr (STATE_V_FIRST) {
-        // 物理 [V,K] 布局的 128 列恰好由一对 FP32 寄存器覆盖。
-        // 所有 V 行使用同一份 E(gk_last)，只计算一次并跨行复用。
+        // 物理 [V,K] 布局�?128 列恰好由一�?FP32 寄存器覆盖�?
+        // 所�?V 行使用同一�?E(gk_last)，只计算一次并跨行复用�?
         if constexpr (std::is_same<GateT, float>::value) {
             FwdHLoadFloatPair(gate0, gate1, gkLast);
         } else {
@@ -306,8 +306,8 @@ __simd_vf__ inline void FwdHStage3Arch35Vf(__ubuf__ bfloat16_t *stateBf16,
                 FwdHStoreBf16(stateBf16 + bf16Offset, state0, state1, mask32, mask16);
             }
             if constexpr (WRITE_H && STATE_FP32) {
-                // FP32 state 没有独立的 32 KiB H bank。当前 D 行读入寄存器后，允许把
-                // BF16 H 原位写到 D slot 的低半区；写地址只覆盖已经消费的 D 行。
+                // FP32 state 没有独立�?32 KiB H bank。当�?D 行读入寄存器后，允许�?
+                // BF16 H 原位写到 D slot 的低半区；写地址只覆盖已经消费的 D 行�?
                 FwdHStoreBf16(hNext + bf16Offset, state0, state1, mask32, mask16);
             }
         }
@@ -317,7 +317,7 @@ __simd_vf__ inline void FwdHStage3Arch35Vf(__ubuf__ bfloat16_t *stateBf16,
 __simd_vf__ inline void FwdHSMinusOneArch35Vf(__ubuf__ float *state,
                                                __ubuf__ bfloat16_t *h)
 {
-    // S-1: H0 = cast_BF16(initial_state)。输入和输出保持 state_v_first 指定的同一物理顺序。
+    // S-1: H0 = cast_BF16(initial_state)。输入和输出保持 state_v_first 指定的同一物理顺序�?
     constexpr uint16_t BF16_PER_REG = AscendC::VECTOR_REG_WIDTH / sizeof(bfloat16_t);
     MaskReg mask16 = CreateMask<bfloat16_t, MaskPattern::ALL>();
     MaskReg mask32 = CreateMask<float, MaskPattern::ALL>();
@@ -340,8 +340,8 @@ public:
     __aicore__ inline void Init(const FwdHKernelArgs &args)
     {
         args_ = args;
-        // 设备侧计时器：本 launch 独占 timer 张量的 SLICE_FWD_H 切片。
-        // timer 为空时所有 Tik/Tok 直接返回，数值路径不变。
+        // 设备侧计时器：本 launch 独占 timer 张量�?SLICE_FWD_H 切片�?
+        // timer 为空时所�?Tik/Tok 直接返回，数值路径不变�?
         if (args_.timer != nullptr) {
             timer_.Init(args_.timer + AscendTimer::SliceOffsetWords(AscendTimer::SLICE_FWD_H) *
                                           static_cast<int64_t>(sizeof(int64_t)));
@@ -355,13 +355,13 @@ public:
         ub_ = allocator.Alloc<AscendC::TPosition::VECCALC, uint8_t>(
             AscendC::GetRuntimeUBSize());
         InitLocalEvents();
-        // Init -> InitDone 记为 MAIN_INIT。
-        timer_.TokNoBarrier<AscendTimer::Overwrite>(AscendTimer::MAIN_INIT);
+        // Init -> InitDone 记为 MAIN_INIT�?
+        timer_.TokNoBarrier<Overwrite>(AscendTimer::MAIN_INIT);
     }
 
     __aicore__ inline void Process()
     {
-        timer_.TikNoBarrier(); // MAIN_BODY 起点（InitDone）
+        timer_.TikNoBarrier(); // MAIN_BODY 起点（InitDone�?
         const FwdHCoreHeadRange range =
             FwdHResolveCoreHeadRange(args_.tiling, coreIdx_, coreNum_);
         const uint32_t headsPerSequence = static_cast<uint32_t>(args_.tiling.vNumHead);
@@ -391,11 +391,11 @@ public:
             }
         }
         DrainLocalEvents();
-        // 收尾：MAIN_BODY -> 每 stage 实际迭代次数 -> 带 barrier 的 KERNEL 总窗口。
-        timer_.TokNoBarrier<AscendTimer::Overwrite>(AscendTimer::MAIN_BODY);
+        // 收尾：MAIN_BODY -> �?stage 实际迭代次数 -> �?barrier �?KERNEL 总窗口�?
+        timer_.TokNoBarrier<Overwrite>(AscendTimer::MAIN_BODY);
         timer_.PublishCounts();
         timer_.Tik(timerKernelStartCycle_);
-        timer_.Tok<AscendTimer::Overwrite>(AscendTimer::KERNEL_TIMING_IDX);
+        timer_.Tok<Overwrite>(AscendTimer::KERNEL_TIMING_IDX);
     }
 
 private:
@@ -405,8 +405,8 @@ private:
         return ub_[byteOffset].template ReinterpretCast<T>();
     }
 
-    // FP32 state 路径让同一 AIV 的两个 head 串行复用数据槽 0；原 localSlot
-    // 保留为 stateSlot，使两个 64 KiB FP32 state 可以跨 chunk 常驻。
+    // FP32 state 路径让同一 AIV 的两�?head 串行复用数据�?0；原 localSlot
+    // 保留�?stateSlot，使两个 64 KiB FP32 state 可以�?chunk 常驻�?
     __aicore__ inline uint32_t DataSlot(const FwdHHeadBinding &head) const
     {
         if constexpr (CompilePolicy::STATE_FP32) {
@@ -536,8 +536,8 @@ private:
             AscendC::WaitFlag<AscendC::HardEvent::MTE3_MTE2>(WorkFreeEvent(slot));
             AscendC::WaitFlag<AscendC::HardEvent::V_MTE2>(GateFreeEvent(slot));
         }
-        // Io 使用 0/1；跨 chunk Work 使用 2/3；Gate/alpha 的 V->MTE2 credit
-        // 使用独立 HardEvent 空间的 0/1。所有代际均在退出前回到 free 状态。
+        // Io 使用 0/1；跨 chunk Work 使用 2/3；Gate/alpha �?V->MTE2 credit
+        // 使用独立 HardEvent 空间�?0/1。所有代际均在退出前回到 free 状态�?
     }
 
     __aicore__ inline uint64_t HOffset(const FwdHWorkUnit &unit, const FwdHChunkSpan &chunk,
@@ -601,7 +601,7 @@ private:
     __aicore__ inline void ConsumeSMinusOneHead(
         const FwdHWorkUnit &unit, const FwdHHeadBinding &head)
     {
-        // S-1：H0=cast_BF16(initial_state)。输入输出保持 state_v_first 指定的物理顺序。
+        // S-1：H0=cast_BF16(initial_state)。输入输出保�?state_v_first 指定的物理顺序�?
         const uint32_t slot = head.localSlot;
         AscendC::WaitFlag<AscendC::HardEvent::MTE2_V>(IoReadyEvent(slot));
         AscendC::VF_CALL<FwdHSMinusOneArch35Vf>(
@@ -619,8 +619,8 @@ private:
 
     __aicore__ inline void RunSMinusOne(const FwdHWorkUnit &unit)
     {
-        // S-1：StateT=FP32 且存在 initial_state 时，H0=cast_BF16(R0)；
-        // 输入输出保持 state_v_first 指定的物理顺序，不依赖外部转置。
+        // S-1：StateT=FP32 且存�?initial_state 时，H0=cast_BF16(R0)�?
+        // 输入输出保持 state_v_first 指定的物理顺序，不依赖外部转置�?
         if constexpr (!CompilePolicy::STATE_FP32) {
             return;
         }
@@ -640,7 +640,7 @@ private:
             ConsumeSMinusOneHead(
                 unit, unit.headRound.heads[aiv_ + 2 * (localHeads - 1)]);
         }
-        // S-1 与主循环复用 [0,192) KiB。先 drain 全部 active bank，再统一发布 H ready。
+        // S-1 与主循环复用 [0,192) KiB。先 drain 全部 active bank，再统一发布 H ready�?
         for (uint32_t slot = 0; slot < localHeads; ++slot) {
             AscendC::WaitFlag<AscendC::HardEvent::MTE3_MTE2>(IoFreeEvent(slot));
             AscendC::SetFlag<AscendC::HardEvent::MTE3_MTE2>(IoFreeEvent(slot));
@@ -652,7 +652,7 @@ private:
         }
     }
 
-    // 保留 leaf stage 调用边界，使各 stage 的临时标量对象复用同一栈区。
+    // 保留 leaf stage 调用边界，使�?stage 的临时标量对象复用同一栈区�?
     template <bool HAS_P, bool WRITE_RIGHT, bool ZERO_STATE, bool SEPARATE_INPUT>
     __aicore__ inline void ConsumeStage1Head(
         const FwdHWorkUnit &unit, const FwdHChunkSpan &chunk, const FwdHHeadBinding &head,
@@ -686,7 +686,7 @@ private:
                 FwdHAivLocalFlag(FWD_H_P_READY_FLAG, head.localSlot));
         }
         if constexpr (CompilePolicy::GATE_MODE == FwdHGateMode::SCALAR_G) {
-            // V1：V_new = cast_BF16(fp32(U) − fp32(P)) 的向量窗口。
+            // V1：V_new = cast_BF16(fp32(U) �?fp32(P)) 的向量窗口�?
             GDN_TIMER_SCOPE(&timer_, AscendTimer::FWH_VNEW);
             AscendC::VF_CALL<FwdHStage1Arch35Vf<HAS_P, true, WRITE_RIGHT, ZERO_STATE, PType>>(
                 reinterpret_cast<__ubuf__ bfloat16_t *>(WorkBf16Slot(inputSlot).GetPhyAddr()), p,
@@ -737,7 +737,7 @@ private:
             }
         } else if constexpr (ZERO_STATE) {
             AscendC::DataCopy(h[HOffset(unit, chunk, head)], StateBf16Slot(slot), FWD_H_K * FWD_H_V);
-            // H0 临时区只在首 chunk 使用；对应 FP32 state 在 Stage3 以 ZERO_INIT 生成。
+            // H0 临时区只在首 chunk 使用；对�?FP32 state �?Stage3 �?ZERO_INIT 生成�?
             WaitStateWritebackBeforeVectorReuse(slot);
         }
         if constexpr (SEPARATE_INPUT) {
@@ -781,14 +781,14 @@ private:
     __aicore__ inline void RunStage1(const FwdHWorkUnit &unit, const FwdHChunkSpan &chunk)
     {
         // Stage1：V_new=cast_BF16(fp32(U)-fp32(P))；g-only 同时生成
-        // V_new_g=cast_BF16(E(g_last-g_i)*V_new_fp32)，gk-only 的右矩阵就是 V_new。
+        // V_new_g=cast_BF16(E(g_last-g_i)*V_new_fp32)，gk-only 的右矩阵就是 V_new�?
         const bool hasP = !(chunk.first && args_.tiling.useInitialState == 0);
         const bool writeRight = args_.tiling.storeFinalState != 0 || !chunk.last;
         const bool zeroState = chunk.first && args_.tiling.useInitialState == 0;
         const uint32_t localHeads = FwdHAivHeadCount(unit.headRound.activeHeadCount, aiv_);
         if constexpr (CompilePolicy::STATE_FP32) {
-            // U/g 使用两个独立 input bank 预取；P/D 只使用数据槽 0，并由 ready/free
-            // 在两个 head 之间串行传递所有权。这样不增加 round 次数。
+            // U/g 使用两个独立 input bank 预取；P/D 只使用数据槽 0，并�?ready/free
+            // 在两�?head 之间串行传递所有权。这样不增加 round 次数�?
             for (uint32_t coreHeadId = 0; coreHeadId < localHeads; ++coreHeadId) {
                 const FwdHHeadBinding &head = unit.headRound.heads[aiv_ + 2 * coreHeadId];
                 PrefetchStage1Inputs(unit, chunk, head, coreHeadId, writeRight);
@@ -800,8 +800,8 @@ private:
                                      hasP, writeRight, zeroState);
             }
             if (writeRight) {
-                // 两个 head 的 right 共用数据槽高半区。等最后一次 MTE3 读取完成后，
-                // 再按逻辑 slot 发布原有 ready，防止首个 D 提前覆盖第二个 right。
+                // 两个 head �?right 共用数据槽高半区。等最后一�?MTE3 读取完成后，
+                // 再按逻辑 slot 发布原有 ready，防止首�?D 提前覆盖第二�?right�?
                 for (uint32_t coreHeadId = 0; coreHeadId < localHeads; ++coreHeadId) {
                     const FwdHHeadBinding &head =
                         unit.headRound.heads[aiv_ + 2 * coreHeadId];
@@ -890,22 +890,22 @@ private:
         AscendC::CrossCoreWaitFlag<0x4, PIPE_V>(
             FwdHAivLocalFlag(FWD_H_D_READY_FLAG, head.localSlot));
         if constexpr (WAIT_MTE2) {
-            // 只有本次 Stage3 确实从 GM 搬入 state/gk 时才等待 MTE2；BF16 g-only
-            // 直接消费 Stage1 已驻留的 stateBf16，不能等待不存在的 event credit。
+            // 只有本次 Stage3 确实�?GM 搬入 state/gk 时才等待 MTE2；BF16 g-only
+            // 直接消费 Stage1 已驻留的 stateBf16，不能等待不存在�?event credit�?
             AscendC::WaitFlag<AscendC::HardEvent::MTE2_V>(IoReadyEvent(slot));
         }
         __ubuf__ float *d = reinterpret_cast<__ubuf__ float *>(LocalSlot(slot).GetPhyAddr());
         __ubuf__ bfloat16_t *hNext = nullptr;
         if constexpr (CompilePolicy::STATE_FP32) {
-            // D 使用完整 64 KiB local slot；right 只是其中高半区的地址别名。
-            // VF 逐行加载对应的 FP32 D 后，再从低地址向高地址写 BF16 H；
-            // 因此每次写入只复用已经消费完成的 D 行。
+            // D 使用完整 64 KiB local slot；right 只是其中高半区的地址别名�?
+            // VF 逐行加载对应�?FP32 D 后，再从低地址向高地址�?BF16 H�?
+            // 因此每次写入只复用已经消费完成的 D 行�?
             hNext = reinterpret_cast<__ubuf__ bfloat16_t *>(LocalSlot(slot).GetPhyAddr());
         } else {
             hNext = reinterpret_cast<__ubuf__ bfloat16_t *>(StateBf16Slot(slot).GetPhyAddr());
         }
         if constexpr (CompilePolicy::GATE_MODE == FwdHGateMode::SCALAR_G) {
-            // V2：state = state·e^{Δg} + D 的向量窗口。
+            // V2：state = state·e^{Δg} + D 的向量窗口�?
             GDN_TIMER_SCOPE(&timer_, AscendTimer::FWH_STATE);
             AscendC::VF_CALL<FwdHStage3Arch35Vf<CompilePolicy::STATE_FP32, true, STATE_V_FIRST,
                                                 WRITE_H, ZERO_INIT, CompilePolicy::USE_EXP2, GateT>>(
@@ -959,7 +959,7 @@ private:
                     LocalSlot(slot).template ReinterpretCast<bfloat16_t>();
                 AscendC::DataCopy(h[HOffset(unit, next, head)], hLocal, FWD_H_K * FWD_H_V);
                 // PIPE_MTE3 的跨核通知排在 H 写回之后；AIC 收到 D_FREE 时，D slot
-                // 已不再作为 MTE3 输入，可以安全进入下一次 Stage0/Stage2。
+                // 已不再作�?MTE3 输入，可以安全进入下一�?Stage0/Stage2�?
                 AscendC::CrossCoreSetFlag<0x4, PIPE_MTE3>(
                     FwdHAivLocalFlag(FWD_H_D_FREE_FLAG, head.localSlot));
             } else {
@@ -1000,12 +1000,12 @@ private:
         static_assert(!EXTERNAL_GATE_BANK ||
                           CompilePolicy::GATE_MODE == FwdHGateMode::SCALAR_G,
                       "external gate banks are only valid for scalar-g");
-        // Stage3：g-only 为 R_next=E(g_last)R+D；gk-only 为
-        // R_next[k,v]=E(gk_last[k])R[k,v]+D[k,v]，并按需生成下一 H 或 final_state。
+        // Stage3：g-only �?R_next=E(g_last)R+D；gk-only �?
+        // R_next[k,v]=E(gk_last[k])R[k,v]+D[k,v]，并按需生成下一 H �?final_state�?
         const bool writeH = !chunk.last;
         const uint32_t localHeads = FwdHAivHeadCount(unit.headRound.activeHeadCount, aiv_);
         if constexpr (CompilePolicy::STATE_FP32) {
-            // FP32 路径只有一个 P/D 数据槽；进入 Stage3 前收回该槽的最终本地 credit。
+            // FP32 路径只有一�?P/D 数据槽；进入 Stage3 前收回该槽的最终本�?credit�?
             for (uint32_t slot = 0; slot < ActiveDataSlotCount(localHeads); ++slot) {
                 AscendC::WaitFlag<AscendC::HardEvent::MTE3_MTE2>(IoFreeEvent(slot));
                 AscendC::SetFlag<AscendC::HardEvent::MTE3_MTE2>(IoFreeEvent(slot));
@@ -1014,8 +1014,8 @@ private:
         for (uint32_t coreHeadId = 0; coreHeadId < localHeads; ++coreHeadId) {
             const FwdHHeadBinding &head = unit.headRound.heads[aiv_ + 2 * coreHeadId];
             const uint32_t slot = DataSlot(head);
-            // externalGateSlot==FWD_H_AIV_HEAD_SLOTS 表示按逻辑 head slot 选择双 gate bank；
-            // 单 head chunk 流水仍直接传入 chunk 奇偶 bank。
+            // externalGateSlot==FWD_H_AIV_HEAD_SLOTS 表示按逻辑 head slot 选择�?gate bank�?
+            // �?head chunk 流水仍直接传�?chunk 奇偶 bank�?
             const uint32_t gateSlot = EXTERNAL_GATE_BANK
                                           ? (externalGateSlot == FWD_H_AIV_HEAD_SLOTS
                                                  ? head.localSlot
@@ -1054,7 +1054,7 @@ private:
                 }
             }
             if constexpr (CompilePolicy::GATE_MODE == FwdHGateMode::KEY_GK) {
-                // gk-only 每个 Stage3 都搬入 gk_last，必须等待该 MTE2。
+                // gk-only 每个 Stage3 都搬�?gk_last，必须等待该 MTE2�?
                 if (zeroState) {
                     if (writeH) {
                         ConsumeStage3Head<true, true, true, RESIDENT_FP32_STATE,
@@ -1072,7 +1072,7 @@ private:
                 }
             } else if constexpr (CompilePolicy::STATE_FP32) {
                 if (zeroState) {
-                    // 首 chunk 无 initial_state 时 state 为 VF 内构造的零值，没有 MTE2 输入。
+                    // �?chunk �?initial_state �?state �?VF 内构造的零值，没有 MTE2 输入�?
                     if (writeH) {
                         ConsumeStage3Head<true, false, true, RESIDENT_FP32_STATE,
                                           EXTERNAL_GATE_BANK>(unit, chunk, head, gateSlot);
@@ -1099,7 +1099,7 @@ private:
                     }
                 }
             } else if (writeH) {
-                // BF16 g-only 的 stateBf16 由 Stage1 写入并由 right-ready 链路保护。
+                // BF16 g-only �?stateBf16 �?Stage1 写入并由 right-ready 链路保护�?
                 ConsumeStage3Head<true, false, false, false, false>(unit, chunk, head, gateSlot);
             } else {
                 ConsumeStage3Head<false, false, false, false, false>(unit, chunk, head, gateSlot);
@@ -1110,8 +1110,8 @@ private:
     __aicore__ inline void RunStage3(const FwdHWorkUnit &unit, const FwdHChunkSpan &chunk)
     {
         if constexpr (CompilePolicy::STATE_FP32) {
-            // 每个 AIV 的两个 64 KiB state bank 分别绑定 localSlot 0/1，四 head
-            // 单轮时也可以跨 chunk 常驻。scalar-g 的 alpha 使用对应逻辑 head bank。
+            // 每个 AIV 的两�?64 KiB state bank 分别绑定 localSlot 0/1，四 head
+            // 单轮时也可以�?chunk 常驻。scalar-g �?alpha 使用对应逻辑 head bank�?
             if constexpr (CompilePolicy::GATE_MODE == FwdHGateMode::SCALAR_G) {
                 RunStage3Impl<true, true>(unit, chunk, FWD_H_AIV_HEAD_SLOTS);
             } else {
@@ -1129,9 +1129,9 @@ private:
 
     __aicore__ inline void ProcessSingleHeadPipeline(const FwdHWorkUnit &unit)
     {
-        // activeHeadCount==1 时只有 AIV0 持有 head。U/g 使用 chunk 奇偶 bank，
-        // 下一 chunk 的 MTE2 在当前 Stage1/Stage3 前发射；P/D/right/state 仍使用
-        // 逻辑 localSlot0，并保持原有跨核 ready/free 协议。
+        // activeHeadCount==1 时只�?AIV0 持有 head。U/g 使用 chunk 奇偶 bank�?
+        // 下一 chunk �?MTE2 在当�?Stage1/Stage3 前发射；P/D/right/state 仍使�?
+        // 逻辑 localSlot0，并保持原有跨核 ready/free 协议�?
         const uint32_t localHeads = FwdHAivHeadCount(unit.headRound.activeHeadCount, aiv_);
         if (localHeads == 0) {
             return;
@@ -1158,7 +1158,7 @@ private:
             const bool zeroState = chunk.first && args_.tiling.useInitialState == 0;
             DispatchStage1<true>(unit, chunk, head, inputSlot, hasP, writeRight, zeroState);
             if (writeRight) {
-                // 单 head 不需要合并等待，保持一份 ready/一次消费的原协议。
+                // �?head 不需要合并等待，保持一�?ready/一次消费的原协议�?
                 AscendC::CrossCoreSetFlag<0x4, PIPE_MTE3>(
                     FwdHAivLocalFlag(FWD_H_RIGHT_READY_FLAG, head.localSlot));
             }
@@ -1220,15 +1220,15 @@ private:
                     FwdHAivLocalFlag(FWD_H_RIGHT_FREE_FLAG, head.localSlot));
             }
         }
-        // 跨 head_round 前必须把本轮所有 VEC->MTE3 写回收口。AIC 收到 ROUND_DONE 后
-        // 才能开始下一轮 kg/H/W 的 MTE2，避免上一轮 MTE3 与下一轮预取跨 round 交叠。
+        // �?head_round 前必须把本轮所�?VEC->MTE3 写回收口。AIC 收到 ROUND_DONE �?
+        // 才能开始下一�?kg/H/W �?MTE2，避免上一�?MTE3 与下一轮预取跨 round 交叠�?
         for (uint32_t slot = 0; slot < ActiveDataSlotCount(localHeads); ++slot) {
             AscendC::WaitFlag<AscendC::HardEvent::MTE3_MTE2>(IoFreeEvent(slot));
             AscendC::SetFlag<AscendC::HardEvent::MTE3_MTE2>(IoFreeEvent(slot));
         }
         if (hasCubeWork && hasNextWorkUnit) {
             AscendC::CrossCoreSetFlag<0x4, PIPE_MTE3>(FwdHAivLocalFlag(FWD_H_ROUND_DONE_FLAG, 0));
-            // DONE 仍由 MTE3 发布以保证写回完成；ACK 用 PIPE_S gate 下一轮全部指令下发。
+            // DONE 仍由 MTE3 发布以保证写回完成；ACK �?PIPE_S gate 下一轮全部指令下发�?
             AscendC::CrossCoreWaitFlag<0x4, PIPE_S>(FwdHAivLocalFlag(FWD_H_ROUND_ACK_FLAG, 0));
         }
     }
@@ -1237,10 +1237,10 @@ private:
     uint32_t coreIdx_ = 0;
     uint32_t coreNum_ = 1;
     uint32_t aiv_ = 0;
-    // allocator 从 dynamicStartUB 分配 GetRuntimeUBSize()，保留 split-core AIV 的
-    // 高端 8 KiB VF 栈，不假设运行时 UB 起始地址为 0。
+    // allocator �?dynamicStartUB 分配 GetRuntimeUBSize()，保�?split-core AIV �?
+    // 高端 8 KiB VF 栈，不假设运行时 UB 起始地址�?0�?
     AscendC::LocalTensor<uint8_t> ub_{};
-    // 计时（SLICE_FWD_H 切片）；timer 为空张量时整类退化为无操作。
+    // 计时（SLICE_FWD_H 切片）；timer 为空张量时整类退化为无操作�?
     AscendTimerDevice timer_;
     int64_t timerKernelStartCycle_ = 0;
 };
