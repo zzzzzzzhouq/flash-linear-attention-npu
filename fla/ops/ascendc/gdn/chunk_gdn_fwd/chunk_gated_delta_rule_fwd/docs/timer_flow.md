@@ -43,19 +43,19 @@ aclnn ChunkGatedDeltaRuleFwd
 
 | 原理步骤 | 枚举 | 位置（`chunk_gated_delta_rule_fwd_prepare/op_kernel/arch35/chunk_gated_delta_rule_fwd_prepare.h`） | 核 | 固定/动态 | iter 轴 | 说明 |
 |---|---|---|---|---|---|---|
-| S0 常驻辅助 | `PREP_RESIDENT_AUX` | `Stage0_GenerateResidentAux` | AIV | 固定 | — | 整个 kernel 一次 |
-| S1-pre 尾块补齐 | `PREP_PAD_TAIL` | `Stage1_PadTailIfNeeded` | AIV | 动态 | task | 仅 tail 命中 |
-| S1a k̂ 上传 | `PREP_K_UPLOAD` | `Stage1_UploadK`（**到 NotifyAicStage1Done 为止**） | AIV | 动态 | task | 放行点在这里；q̂ 导出也在此窗口内，需在报告中注明 |
+| S0 常驻辅助 | `PREP_RESIDENT_AUX` | `Stage0_GenerateResidentAux`（`auxReady` 判定之后） | AIV | 固定 | — | 整个 kernel 一次 |
+| S1-pre 尾块补齐 | `PREP_PAD_TAIL` | `Stage1_PadTailIfNeeded`（`nValid >= nPad` 判定之后） | AIV | 动态 | task | 仅 tail 命中 |
+| S1a k̂ 上传 | `PREP_K_UPLOAD` | `Stage1_UploadK` 的整个函数体（`OwnsHk` 判定之后），到 `NotifyAicStage1Done` 为止 | AIV | 动态 | task | 放行点在这里；q̂ 导出也在此窗口内，且窗口内含 `WaitAicStage4Done` 这一功能性跨核等待，见 §5 |
 | S1b gate/β | `PREP_GATE_BETA` | `Stage1_GateAndBeta` | AIV | 动态 | task | 与 Cube KKT 并行 |
-| S2 KKT | `PREP_KKT_MM` | `Stage2_AicOne` 的 `MatmulToL0C`（**不含前面的 `WaitFlag<M_MTE1>`**） | AIC | 动态 | (chunk,HK) | 每 HK 一次，G=2 每包 2 次 |
+| S2 KKT | `PREP_KKT_MM` | `Stage2_AicOne` 的 `MatmulToL0C`（**不含前面的 `WaitFlag<M_MTE1>`**，也不含后面的 dump） | AIC | 动态 | (chunk,HK) | 每 HK 一次，G=2 每包 2 次 |
 | S3a gate 预计算 | `PREP_KKT_GATE` | `Stage3_PrepareGate` | AIV | 动态 | (chunk,HV) | 可在等 KKT 之前完成 |
-| S3b L 计算 | `PREP_KKT_EPI` | `Stage3_AivOne`，**Tik 放在 `WaitCubeKktDone` 之后** | AIV | 动态 | (chunk,HV) | 纯计算窗口 |
-| S4-pre 预填充 | `PREP_SOLVE_PREFILL` | `Stage4_PrefillI` 的 `MmadL0ABToL0C` | AIC | 动态 | task | 与 AIV 的 S3b 重叠 |
+| S3b L 计算 | `PREP_KKT_EPI` | `Stage3_AivOne`，**Tik 放在 `WaitCubeKktDone` 之后**，Tok 在 `NotifyAicStage3Done` 之前 | AIV | 动态 | (chunk,HV) | 纯计算窗口 |
+| S4-pre 预填充 | `PREP_SOLVE_PREFILL` | `Stage4_PrefillI` 的 `MmadL0ABToL0C`（循环内逐 task） | AIC | 动态 | task | 与 AIV 的 S3b 重叠 |
 | S4-issue | `PREP_SOLVE_ISSUE` | `Stage4_AccIssue` 的 MMAD | AIC | 动态 | task | 等 S3(t) 之后 |
-| S4-dump | `PREP_SOLVE_DUMP` | `Stage4_Dump` / `Stage5_Dump` 的 Fixpipe | AIC | 动态 | task | issue(t) 与 dump(t-1) 流水 |
-| S5 求逆 | `PREP_SOLVE` | `Stage5_Compute` | AIC | 动态 | task | |
-| S6a vb | `PREP_WU_V` | `Stage6_AivOne` 的 v 段（到 `UploadBf16NdToL1(l1Vb)`） | AIV | 动态 | task | |
-| S6b kbg | `PREP_WU_K` | `Stage6_AivOne` 的 k 段（`DataCopy(ubKnd)` 起） | AIV | 动态 | task | |
+| S4-dump | `PREP_SOLVE_DUMP` | `Stage4_Dump` / `Stage5_Dump` 的 Fixpipe+dump 段 | AIC | 动态 | task | issue(t) 与 dump(t-1) 流水 |
+| S5 求逆 | `PREP_SOLVE` | `Stage5_Compute`（`WaitFlag<M_MTE1>` 之后包住两个 `MatmulToL0C`） | AIC | 动态 | task | |
+| S6a vb | `PREP_WU_V` | `Stage6_AivOne` 的 v 段（`DataCopy(ubVnd...)` 到 `UploadBf16NdToL1(l1Vb)`） | AIV | 动态 | task | |
+| S6b kbg | `PREP_WU_K` | `Stage6_AivOne` 的 k 段（`DataCopy(ubKnd)` 到 `UploadBf16NdToL1(l1Kbg)`） | AIV | 动态 | task | |
 | S7a W | `PREP_W_ISSUE` | `Stage7_AicOne` 的 `WuMatmulToL0C(l1A,l1Kbg,...)` | AIC | 动态 | task | 只包 MMAD，不含 helper 内部等待 |
 | S7b U | `PREP_U_ISSUE` | `Stage7_AicOne` 的 `WuMatmulToL0C(l1A,l1Vb,...)`（V=256 两次） | AIC | 动态 | task | |
 | w/u 回写 | `PREP_WU_DRAIN` | `DrainPackWuToGm` | AIV | 动态 | task | 下一包窗口内 |
@@ -64,22 +64,35 @@ aclnn ChunkGatedDeltaRuleFwd
 
 | 原理步骤 | 枚举 | 位置（`chunk_fwd_h/op_kernel/arch35/`） | 核 | iter 轴 | 说明 |
 |---|---|---|---|---|---|
-| C1 P=w·S | `FWH_WH_MM` | `chunk_fwd_h_cube.h` 的 MMAD（**Tik 在 W/H/L0 等待之后**） | AIC | (chunk,head) | 不含等待 |
-| V1 v_new | `FWH_VNEW` | `chunk_fwd_h_vec.h` 的 `epilogueGDNFwdHVnew` | AIV | (chunk,head) | |
-| C2 kᵀ·v_new | `FWH_KV_MM` | `chunk_fwd_h_cube.h` 的 MMAD | AIC | (chunk,head) | |
-| V2 状态更新 | `FWH_STATE` | `chunk_fwd_h_vec.h` 的 `epilogueGDNFwdHUpdate` | AIV | (chunk,head) | |
-| W/K 预取 | `FWH_PREFETCH` | W/K 的 GM→L1 搬入点 | AIC | (chunk,head) | MTE2 下发窗口 |
+| C1 P=w·S | `FWH_WH_MM` | `chunk_fwd_h_cube.h` 的 `ComputeStage0Head`：在 W/H/L0/`MTE1_M`/`FIX_M` 全部等待之后，只包 `TileMmadS0` 调用 | AIC | (chunk,head) | 不含等待 |
+| V1 v_new | `FWH_VNEW` | `chunk_fwd_h_vec.h` 的 `ConsumeStage1Head` 里 `VF_CALL<FwdHStage1Arch35Vf<...>>`（arch35 无 `epilogueGDNFwdHVnew` 命名，见 §5） | AIV | (chunk,head) | |
+| C2 kᵀ·v_new | `FWH_KV_MM` | `chunk_fwd_h_cube.h` 的 `ComputeStage2Head`：在 L0/MTE2/`MTE1_M`/`FIX_M` 等待之后，只包 `TileMmadS2` 调用 | AIC | (chunk,head) | |
+| V2 状态更新 | `FWH_STATE` | `chunk_fwd_h_vec.h` 的 `ConsumeStage3Head` 里 `VF_CALL<FwdHStage3Arch35Vf<...>>`（arch35 无 `epilogueGDNFwdHUpdate` 命名，见 §5） | AIV | (chunk,head) | |
+| W/K 预取 | `FWH_PREFETCH` | `chunk_fwd_h_cube.h` 的 `LoadStage0W`（W 的 `copyW`）与 `LoadKg`（K/kg 的 `copy`，含 `STATE_V_FIRST` 两支） | AIC | (chunk,head) | MTE2 下发窗口 |
 
 ### FwdO
 
 | 原理步骤 | 枚举 | 位置（`chunk_fwd_o/op_kernel/arch35/`） | 核 | iter 轴 | 说明 |
 |---|---|---|---|---|---|
-| V1 gate | `FWO_GATE` | `chunk_fwd_o_vector.h` 的 `ComputeStage1Gate` | AIV | (chunk,head) | |
-| C1a q·kᵀ | `FWO_QK` | `chunk_fwd_o_cube.h` 的 `blockMmadQK` | AIC | (chunk,head) | |
-| C1b q·h | `FWO_QH` | `chunk_fwd_o_cube.h` 的 `blockMmadQH*` | AIC | (chunk,head) | 含 ToUB 变体 |
-| V2 mask | `FWO_MASK` | `chunk_fwd_o_vector.h` 的 `Stage3Gate64VF` | AIV | (chunk,head) | |
-| C3 Attn·v_new | `FWO_ATTN_V` | `chunk_fwd_o_cube.h` 的 `TileMmad` | AIC | (chunk,head) | |
-| V3 输出融合 | `FWO_OUTPUT` | `chunk_fwd_o_vector.h` 的 `Stage5Fuse64VF` | AIV | (chunk,head) | |
+| V1 gate | `FWO_GATE` | `chunk_fwd_o_vector.h` 的 `ComputeStage1Gate`（函数体） | AIV | (chunk,head) | |
+| C1a q·kᵀ | `FWO_QK` | `chunk_fwd_o_cube.h` 的 `QkTileMmad` 调用前后 | AIC | (chunk,head) | |
+| C1b q·h | `FWO_QH` | `chunk_fwd_o_cube.h` 的 `QhTileMmad` 调用前后 | AIC | (chunk,head) | 含 ToUB 变体 |
+| V2 mask | `FWO_MASK` | `chunk_fwd_o_vector.h` 的 `VF_CALL<Stage3Gate64VF<true/false>>` 两处 | AIV | (chunk,head) | |
+| C3 Attn·v_new | `FWO_ATTN_V` | `chunk_fwd_o_cube.h` 的 `ProcessStage4Head` 里两处 `TileMmad{}` | AIC | (chunk,head) | |
+| V3 输出融合 | `FWO_OUTPUT` | `chunk_fwd_o_vector.h` 的 `VF_CALL<Stage5Fuse64VF>` | AIV | (chunk,head) | |
+
+### 固定项（三个 launch 各写一份）
+
+| 枚举 | 落点 | 说明 |
+|---|---|---|
+| `MAIN_INIT` | 各自 `Init()` 内：`timer_.Init(...)` + `TikNoBarrier()` 之后，`Init()` 返回前 `TokNoBarrier<Overwrite>` | Init → InitDone |
+| `MAIN_BODY` | 各自 `Process()` 首行 `TikNoBarrier()`，最后一次 `TokNoBarrier<Overwrite>` | InitDone → kernel 结束 |
+| `KERNEL_TIMING_IDX` | 收尾：`PublishCounts()` 之后 `Tik(kernelStart)` + `Tok<Overwrite>`（**唯一带 barrier 的 Tok**） | 整体墙钟 |
+
+`Init()` 内保存 `timerKernelStartCycle_ = timer_.GetStartCycle()`，收尾时用
+`timer_.Tik(timerKernelStartCycle_)` 还原总窗口起点，因此 `KERNEL_TIMING_IDX`
+覆盖 Init 起点到 kernel 结束，而 `MAIN_BODY` 只覆盖 body。
+
 
 ## 3. 与上一版打点的差异（针对性修正）
 
@@ -98,6 +111,38 @@ aclnn ChunkGatedDeltaRuleFwd
 ## 4. 读数约定
 
 - 所有动态项是 issue window，**不是完成时延**；异步 MMAD 的完成要看后续功能性等待/产物消费点。
-- 窗口可重叠，**不可相加**；总时间只看 `KERNEL_TIMING`。
-- 每核每阶段最多 `MAX_DYNAMIC_ITER = 64` 次，超出截断（`setDynamicActualIter` 记录实际次数）。
+- 窗口可重叠，**不可相加**；总时间只看 `KERNEL_TIMING_IDX`。
+- 每核每阶段最多 `MAX_DYNAMIC_ITER = 64` 次，超出截断（`PublishCounts()` → `setDynamicActualIter` 记录实际次数）。
 - 跨核绝对时间需先核实 AIC/AIV 共同时钟；未核实时只比较本核内的相对顺序与时长。
+
+## 5. 实现落点与设计的偏差（以代码为准）
+
+1. **FwdH 的 V1/V2 命名**：设计里的 `epilogueGDNFwdHVnew` / `epilogueGDNFwdHUpdate` 是
+   arch22（`internal/operators/.../epilogue/block/block_epilogue_gdn_fwdh_*.hpp`）里的命名，
+   arch35 走 `chunk_fwd_h_vec.h` 的单 VF 实现。落点改为：
+   `ConsumeStage1Head` 的 `VF_CALL<FwdHStage1Arch35Vf<...>>`（`FWH_VNEW`）与
+   `ConsumeStage3Head` 的 `VF_CALL<FwdHStage3Arch35Vf<...>>`（`FWH_STATE`）；
+   两者都有 `SCALAR_G` / 非 `SCALAR_G` 两支，两支各放一个同类型 scope。
+2. **FWH_WH_MM / FWH_KV_MM 的 Tik 位置**：设计写"在 W/H/L0 等待之后"，实现放在
+   `TileMmadS0` / `TileMmadS2` 调用前一刻（即 L1→L0 拷贝和 `MTE1_M`/`FIX_M` 等待之后），
+   这样窗口内**不含任何等待**，只测 MMAD 下发。`LoadStage0W` / `LoadKg` 的 GM→L1
+   搬入确实存在独立调用点，已打 `FWH_PREFETCH`（W 与 K/kg 各一处，K 的
+   `STATE_V_FIRST` 两支同类型）。
+3. **PREP_K_UPLOAD 含跨核功能等待**：按"`Stage1_UploadK` 函数体"的要求，窗口从
+   `OwnsHk` 判定之后开始，因此**包含窗口内的 `WaitAicStage4Done(taskIdx)`**
+   （k' 的 L1 槽被上一包 Stage4 占用，必须等它 dump 完）。这一段是功能性等待，
+   读数时注意 `PREP_K_UPLOAD` 不是纯计算窗口；未为此新增任何同步。
+4. **PREP_SOLVE_PREFILL 逐 task**：`Stage4_PrefillI` 的 `I@I` 在 `nThis` 循环里，
+   每个 task 一个 scope、一个 iter，因此 `PREP_SOLVE_PREFILL_N` 对应第 N 个 task。
+5. **PREP_SOLVE_DUMP 两处同类型**：`Stage4_Dump`（L0C→GM workspace→L1）与
+   `Stage5_Dump`（L0C→GM A / L0C→L1 A）共用 `PREP_SOLVE_DUMP`，按 iter 递增区分。
+6. **FwdO 的 C3 与 V2 各有两支**：`ProcessStage4Head` 的满块/尾块两支各一个
+   `FWO_ATTN_V`；Stage3 的 `Stage3Gate64VF<true/false>` 两支各一个 `FWO_MASK`，
+   两者都是同类型、不同 iter。
+7. **FwdO 非 A5 路径不打点**：`chunk_fwd_o.cpp` 的 `ChunkFwdODispatch` 只把 timer
+   传到 `ChunkFwdOA5Dispatch`；A2/A3 的 CATLASS 融合实现（`ChunkFwdOKernelImpl`）
+   本轮不打点。
+8. **timer 为空时零行为差异**：`Init` 里只在 `timerAddr != nullptr` 时 `timer_.Init(...)`，
+   之后所有 `TikNoBarrier` / `TokNoBarrier` / scope 构造都走 `t_addr == nullptr` 的
+   早退分支（只剩 `AscendTimerDevice` 成员构造本身的开销）；FwdH AIC 侧在
+   "本核无 Cube 工作"时完全不写计时缓冲（该核视为未启用）。数值路径不改一行。

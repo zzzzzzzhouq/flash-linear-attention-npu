@@ -350,7 +350,11 @@ private:
                                    tla::MakeShape(chunk.validTokens, FWD_H_K));
         auto tensorL1W = tla::MakeTensor(L1W(wSlot), L1_W_LAYOUT, Catlass::Arch::PositionL1{});
         CopyGmToL1AS0<decltype(blockW)> copyW;
-        copyW(tensorL1W, blockW);
+        {
+            // W 的 GM→L1 预取（MTE2 下发窗口）。
+            GDN_TIMER_SCOPE(&timer_, AscendTimer::FWH_PREFETCH);
+            copyW(tensorL1W, blockW);
+        }
         AscendC::SetFlag<AscendC::HardEvent::MTE2_MTE1>(WDoneEvent(wSlot));
     }
 
@@ -411,8 +415,12 @@ private:
         AscendC::WaitFlag<AscendC::HardEvent::MTE1_M>(L0AReadyEvent(pipelineSlot));
         AscendC::WaitFlag<AscendC::HardEvent::MTE1_M>(L0BReadyEvent(pipelineSlot));
         AscendC::WaitFlag<AscendC::HardEvent::FIX_M>(FixFreeEvent(pipelineSlot));
-        TileMmadS0 mmad;
-        mmad(tensorL0C, tensorL0A, tensorL0B, true, 0);
+        {
+            // C1：P = w·S 的 MMAD 下发；窗口不含上面任何 W/H/L0/MTE1_M 等待。
+            GDN_TIMER_SCOPE(&timer_, AscendTimer::FWH_WH_MM);
+            TileMmadS0 mmad;
+            mmad(tensorL0C, tensorL0A, tensorL0B, true, 0);
+        }
         AscendC::SetFlag<AscendC::HardEvent::M_MTE1>(L0AFreeEvent(pipelineSlot));
         AscendC::SetFlag<AscendC::HardEvent::M_MTE1>(L0BFreeEvent(pipelineSlot));
         AscendC::SetFlag<AscendC::HardEvent::M_FIX>(FixDoneEvent(pipelineSlot));
@@ -504,7 +512,11 @@ private:
             auto tensorL1 = tla::MakeTensor(L1Kg(slot), L1_LEFT_S2_LAYOUT,
                                             Catlass::Arch::PositionL1{});
             CopyGmToL1AS2<decltype(blockGm)> copy;
-            copy(tensorL1, blockGm);
+            {
+                // K（kg）的 GM→L1 预取（MTE2 下发窗口）。
+                GDN_TIMER_SCOPE(&timer_, AscendTimer::FWH_PREFETCH);
+                copy(tensorL1, blockGm);
+            }
         } else {
             auto gmLayout = tla::MakeLayout<bfloat16_t, LayoutRightS2>(chunk.validTokens, FWD_H_K);
             auto tensorGm = tla::MakeTensor(gmKg, gmLayout, Catlass::Arch::PositionGM{});
@@ -513,7 +525,11 @@ private:
             auto tensorL1 = tla::MakeTensor(L1Kg(slot), L1_RIGHT_S2_LAYOUT,
                                             Catlass::Arch::PositionL1{});
             CopyGmToL1BS2<decltype(blockGm)> copy;
-            copy(tensorL1, blockGm);
+            {
+                // K（kg）的 GM→L1 预取（MTE2 下发窗口），STATE_V_FIRST 变体。
+                GDN_TIMER_SCOPE(&timer_, AscendTimer::FWH_PREFETCH);
+                copy(tensorL1, blockGm);
+            }
         }
         AscendC::SetFlag<AscendC::HardEvent::MTE2_MTE1>(WDoneEvent(slot));
     }
@@ -609,8 +625,12 @@ private:
         AscendC::WaitFlag<AscendC::HardEvent::MTE1_M>(L0AReadyEvent(pipelineSlot));
         AscendC::WaitFlag<AscendC::HardEvent::MTE1_M>(L0BReadyEvent(pipelineSlot));
         AscendC::WaitFlag<AscendC::HardEvent::FIX_M>(FixFreeEvent(pipelineSlot));
-        TileMmadS2 mmad;
-        mmad(tensorL0C, tensorL0A, tensorL0B, true, 0);
+        {
+            // C2：D = kᵀ·v_new 的 MMAD 下发；窗口不含上面任何 L0/MTE2/MTE1_M 等待。
+            GDN_TIMER_SCOPE(&timer_, AscendTimer::FWH_KV_MM);
+            TileMmadS2 mmad;
+            mmad(tensorL0C, tensorL0A, tensorL0B, true, 0);
+        }
         AscendC::SetFlag<AscendC::HardEvent::M_MTE1>(L0AFreeEvent(pipelineSlot));
         AscendC::SetFlag<AscendC::HardEvent::M_MTE1>(L0BFreeEvent(pipelineSlot));
         AscendC::SetFlag<AscendC::HardEvent::M_FIX>(FixDoneEvent(pipelineSlot));

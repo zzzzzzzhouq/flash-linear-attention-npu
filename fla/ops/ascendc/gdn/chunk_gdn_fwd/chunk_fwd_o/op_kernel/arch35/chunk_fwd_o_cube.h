@@ -265,7 +265,11 @@ private:
             CopyL1ToL0B{}(tileL0B, tileL1V);
             SetFlag<HardEvent::MTE1_M>(avCSlot);
             WaitFlag<HardEvent::MTE1_M>(avCSlot);
-            TileMmad{}(tileL0C, tileL0A, tileL0B, kBt, kV, kBt, true, 0);
+            {
+                // C3：O_l = A′·v_new 的 MMAD 下发窗口。
+                GDN_TIMER_SCOPE(timer_, AscendTimer::FWO_ATTN_V);
+                TileMmad{}(tileL0C, tileL0A, tileL0B, kBt, kV, kBt, true, 0);
+            }
         } else {
             auto layoutL0A = tla::MakeLayout<Element, LayoutTagL0A>(mActual, mActual);
             auto layoutL0B = tla::MakeLayout<Element, LayoutTagL0B>(mActual, kV);
@@ -281,7 +285,11 @@ private:
             CopyL1ToL0B{}(tileL0B, tileL1V);
             SetFlag<HardEvent::MTE1_M>(avCSlot);
             WaitFlag<HardEvent::MTE1_M>(avCSlot);
-            TileMmad{}(tensorL0C, tensorL0A, tensorL0B, true, 0);
+            {
+                // C3：O_l = A′·v_new 的 MMAD 下发窗口（尾块变体）。
+                GDN_TIMER_SCOPE(timer_, AscendTimer::FWO_ATTN_V);
+                TileMmad{}(tensorL0C, tensorL0A, tensorL0B, true, 0);
+            }
         }
         PipeBarrier<PIPE_M>();
         SetFlag<HardEvent::M_MTE1>(L0AEvent(avASlot));
@@ -419,7 +427,11 @@ private:
         CopyQkL1ToL0B{}(tileQktL0B, tileL1K);
         SetFlag<HardEvent::MTE1_M>(qktCSlot);
         WaitFlag<HardEvent::MTE1_M>(qktCSlot);
-        QkTileMmad{}(tileQktL0C, tileQktL0A, tileQktL0B, m, m, kK, true, 0);
+        {
+            // C1a：attn = q·kᵀ 的 MMAD 下发窗口。
+            GDN_TIMER_SCOPE(timer_, AscendTimer::FWO_QK);
+            QkTileMmad{}(tileQktL0C, tileQktL0A, tileQktL0B, m, m, kK, true, 0);
+        }
         SetFlag<HardEvent::M_MTE1>(L0AEvent(qktASlot));
         SetFlag<HardEvent::M_MTE1>(L0BEvent(qktBSlot));
 
@@ -482,7 +494,11 @@ private:
         SetFlag<HardEvent::MTE1_M>(qhCSlot);
         WaitFlag<HardEvent::MTE1_M>(qhCSlot);
         SetFlag<HardEvent::MTE1_MTE2>(hEvent);
-        QhTileMmad{}(tileQhL0C, tileQhL0A, tileQhL0B, m, kV, kK, true, 0);
+        {
+            // C1b：O_s = q·h 的 MMAD 下发窗口。
+            GDN_TIMER_SCOPE(timer_, AscendTimer::FWO_QH);
+            QhTileMmad{}(tileQhL0C, tileQhL0A, tileQhL0B, m, kV, kK, true, 0);
+        }
 
         PipeBarrier<PIPE_M>();
         SetFlag<HardEvent::M_MTE1>(L0AEvent(qhASlot));
