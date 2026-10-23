@@ -39,7 +39,6 @@ public:
             args_.tiling.seqlen > static_cast<int64_t>(FWD_H_CHUNK);
         // 设备侧计时器：本 launch 独占 timer 张量的 SLICE_FWD_H 切片。
         // timer 为空、或本核没有 Cube 工作时完全不写计时缓冲（该核视为未启用）。
-        AscendC::printf("[gdn-timer] fwd_h timer null=%d\n", args_.timer == nullptr ? 1 : 0);
         if (hasCubeWork_ && args_.timer != nullptr) {
             timer_.Init(args_.timer + ASCEND_TIMER_SLICE_OFFSET_WORDS(AscendTimer::SLICE_FWD_H) *
                                           static_cast<int64_t>(sizeof(int64_t)));

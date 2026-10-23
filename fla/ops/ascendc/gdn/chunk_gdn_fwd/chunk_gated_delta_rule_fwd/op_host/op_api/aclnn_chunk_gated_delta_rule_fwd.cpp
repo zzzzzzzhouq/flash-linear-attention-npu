@@ -743,8 +743,7 @@ static aclnnStatus ChunkGatedDeltaRuleFwdGetWorkspaceSizeImpl(
         const aclTensor *qCompute = params.useQkL2norm ? qHat : qHead;
         const aclTensor *kCompute = params.useQkL2norm ? kHat : kHead;
 
-        OP_LOGI("gdn-timer", "prepare timerOptional=%p", params.timerOptional);
-    auto prepareResult = l0op::ChunkGatedDeltaRuleFwdPrepare(
+        auto prepareResult = l0op::ChunkGatedDeltaRuleFwdPrepare(
             qHead, kHead, vHead, gRaw, betaBht, params.aLogOptional, params.dtBiasOptional,
             params.cuSeqlensOptional, params.chunkIndicesOptional, params.timerOptional, params.chunkSize,
             params.allowNegEigval, params.useExp2, params.useQkL2norm,
