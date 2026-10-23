@@ -37,6 +37,7 @@ public:
                                 GM_ADDR workspace, const Td &td)
     {
         LoadTiling(td);
+        AscendC::printf("[gdn-timer] prepare timer null=%d\n", timerAddr == nullptr ? 1 : 0);
         // 设备侧计时器：timerAddr 为空时所有 Tik/Tok 直接返回，数值路径不变。
         if (timerAddr != nullptr) {
             timer_.Init(timerAddr + ASCEND_TIMER_SLICE_OFFSET_WORDS(AscendTimer::SLICE_PREPARE) *
