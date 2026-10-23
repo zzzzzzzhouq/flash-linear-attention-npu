@@ -44,6 +44,9 @@ public:
                                         static_cast<int64_t>(sizeof(int64_t)));
             timer_.TikNoBarrier();
             timerKernelStartCycle_ = timer_.GetStartCycle();
+            AscendC::printf("[gdn-timer] prepare start=%lld off=%lld\n",
+                            static_cast<long long>(timerKernelStartCycle_),
+                            static_cast<long long>(ASCEND_TIMER_SLICE_OFFSET_WORDS(AscendTimer::SLICE_PREPARE)));
         }
         InitOnChip();
         GM_ADDR userWs = GetUserWorkspace(workspace);
@@ -976,6 +979,8 @@ public:
         timer_.PublishCounts();
         timer_.Tik(timerKernelStartCycle_);
         timer_.Tok<Overwrite>(AscendTimer::KERNEL_TIMING_IDX);
+        AscendC::printf("[gdn-timer] prepare end start=%lld\n",
+                        static_cast<long long>(timerKernelStartCycle_));
     }
 
 private:
