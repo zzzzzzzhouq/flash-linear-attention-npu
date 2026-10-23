@@ -42,19 +42,24 @@ public:
         o_ = o;
         workspace_ = workspace;
         tiling_ = *tilingData;
-        // 设备侧计时器：本 launch 独占 timer 张量�?SLICE_FWD_O 切片�?        // timerAddr 为空时所�?Tik/Tok 直接返回，数值路径不变�?        if (timerAddr != nullptr) {
+        // 设备侧计时器：本 launch 独占 timer 张量的 SLICE_FWD_O 切片。
+        // timerAddr 为空时所有 Tik/Tok 直接返回，数值路径不变。
+        if (timerAddr != nullptr) {
             timer_.Init(timerAddr + AscendTimer::SliceOffsetWords(AscendTimer::SLICE_FWD_O) *
                                         static_cast<int64_t>(sizeof(int64_t)));
             timer_.TikNoBarrier();
             timerKernelStartCycle_ = timer_.GetStartCycle();
         }
-        // Init -> InitDone 记为 MAIN_INIT�?        timer_.TokNoBarrier<Overwrite>(AscendTimer::MAIN_INIT);
+        // Init -> InitDone 记为 MAIN_INIT。
+        timer_.TokNoBarrier<Overwrite>(AscendTimer::MAIN_INIT);
     }
 
     __aicore__ inline void Process()
     {
-        timer_.TikNoBarrier(); // MAIN_BODY 起点（InitDone�?        ProcessCore();
-        // 收尾：MAIN_BODY -> �?stage 实际迭代次数 -> �?barrier �?KERNEL 总窗口�?        timer_.TokNoBarrier<Overwrite>(AscendTimer::MAIN_BODY);
+        timer_.TikNoBarrier(); // MAIN_BODY 起点（InitDone）
+        ProcessCore();
+        // 收尾：MAIN_BODY -> 每 stage 实际迭代次数 -> 带 barrier 的 KERNEL 总窗口。
+        timer_.TokNoBarrier<Overwrite>(AscendTimer::MAIN_BODY);
         timer_.PublishCounts();
         timer_.Tik(timerKernelStartCycle_);
         timer_.Tok<Overwrite>(AscendTimer::KERNEL_TIMING_IDX);
@@ -94,7 +99,8 @@ private:
     GM_ADDR o_ = nullptr;
     GM_ADDR workspace_ = nullptr;
     ChunkFwdOTilingData tiling_{};
-    // 计时（SLICE_FWD_O 切片）；timer 为空张量时整类退化为无操作�?    AscendTimerDevice timer_;
+    // 计时（SLICE_FWD_O 切片）；timer 为空张量时整类退化为无操作。
+    AscendTimerDevice timer_;
     int64_t timerKernelStartCycle_ = 0;
 };
 
