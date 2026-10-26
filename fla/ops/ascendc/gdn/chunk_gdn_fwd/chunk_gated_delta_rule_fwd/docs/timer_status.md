@@ -37,44 +37,57 @@ PREP_K_UPLOAD.start < notify < KKT_MM.start
 
 **正确读法**：两条 lane 分开看，跨 lane 只保留代码保证的握手（notify → wait）。
 
-## 3. 结论：跨核绝对时间戳目前不可比
+## 3. 结论：图上的"KKT 在 K_UPLOAD 前面"是 issue 时刻，不是执行时刻
 
-同一份数据里有两处**硬违反**（依赖是代码保证的）：
+新数据（含 `PREP_WAIT_*` / `PREP_NOTIFY_S1` / `ANCHOR`）可以定量说明这一点。group 0 的三条 lane：
 
-| 依赖 | AIC 侧 | AIV 侧 | 偏差 |
-| --- | --- | --- | --- |
-| KKT 在 stage1 通知之后 | KKT **6.98** | K_UPLOAD **13.93–15.58** | 早 7–8.5us |
-| `Stage4_AccIssue` 在 `WaitAivStage3Done` 之后 | ISSUE **11.21** | KKT_EPI **22.77** | 早 11.5us |
+```
+AIC : body 3.914  WAIT_S1_0 [4.558→5.033]  KKT_MM_0 [5.534→6.123]
+AIV0: body 4.655  AUX [4.669→5.476] ...    K_UPLOAD [8.191→9.353]  NOTIFY [8.721→8.973]
+```
 
-而两条 lane 的 INIT 起点（0.52 vs 0.68）和 body 时长（35.6 vs 34.7）又是一致的，
-排除了整体时钟偏移/频率差异。结论：
+数值 vs 执行：
 
-- **核内**的 duration 有效（同一计数器做差）；
-- **跨核**的绝对位置不可用，凡是"谁先谁后 / 重叠 / 谁等谁"的判断都作废。
+- 两条 lane 的 `MAIN_INIT` 起点（1.14 vs 1.49）和结束时间（446.5 vs 447.5）都对齐，
+  **时钟是共用的**，不存在整体偏移；
+- `WaitAivStage1Done` 用的是 `CrossCoreWaitFlag<0x4, PIPE_MTE1>`：**只挡 MTE1，标量不挡**；
+- 计时 `Tik/Tok` 是标量读，所以 AIC 的标量在 4.6us 就越过了 wait，并继续下发 KKT 的 Tik（5.5us），
+  而真正读 k' 的 MTE1 装载被挡到 AIV 写完 L1（≈9.3us）之后；
+- 之后 AIC 的每个 stage 都提前同样的量（PREFILL 7.4 vs 10.2、WAIT_S3 8.7 vs KKT_EPI 13.3），
+  到 kernel 末尾两条 lane 又追平。
+
+因此：
+
+- **执行顺序是对的**（k' 一定在 KKT 的 MTE1 装载之前写好），不是同步 bug，也不是时钟错位；
+- **图上画的是标量 issue 时刻**，标量跑在 pipe 前面，所以跨 lane 的先后没有意义；
+- `PREP_WAIT_*` 只有 0.02–0.08us 也是同一原因：它测的是"标量越过 wait 指令"的时间，
+  不是 pipe 真正阻塞的时间，**不能用来量化等待**。
+
+**正确读法**：每条 lane 内看顺序和时长；跨 lane 只看总时长，不看相对位置。
 
 ## 4. 正确的两 lane 视图（prepare，单 pack）
 
-用核内可信时长（us）：AIV `Init 6.8 → AUX 1.5 → S1 load/norm 3.2 → K_UPLOAD 1.6
-→ GATE_BETA 1.8 → KKT_GATE 1.2 → KKT_EPI 6.4 → WU_V 2.1 → WU_K 1.8 → DRAIN 1.2`；
-AIC `Init 5.2 → [WaitAivStage1Done ≈ 9.6] → KKT → PREFILL → ISSUE/DUMP → SOLVE/DUMP → W/U`。
+用核内可信时长（大 case，us）：AIV `Init ~1.2 → AUX 0.68 → S1 load/norm（窗口外，约 1.8）
+→ K_UPLOAD 0.53 → GATE_BETA 0.22 → KKT_GATE 0.14 → KKT_EPI 1.16 → WU_V 0.48 → WU_K 0.55 → DRAIN 0.33`；
+AIC `Init ~1.1 → KKT 0.12 → PREFILL 0.04 → ISSUE 0.09 → SOLVE 0.21 → W/U 0.21`。
 
-要点：**AIC 的 body 起点到 KKT 之间是一段约 9.6us 的等待**，这才是 prepare 的主要空转；
-优化方向是缩短 AIV 的 init + stage1，而不是继续压 vector 计算。
+要点：**AIC 的 issue 会比 AIV 提前 3–4us，但那是标量提前，不是真实等待**；
+prepare 的真实构成是 AIV 的搬运 + vector 运算（打点覆盖 77%），等待只占很小一部分。
 
-## 5. 遗留：新计时器在 prepare 上只落了部分事件
+## 5. 已解决：prepare 计时数据只落一部分（`83ce802d`）
 
-已加的诊断打点（`PREP_INIT_MAP/WS/GM`、`PREP_WAIT_S1/S3/S6/S4/CUBE`、`PREP_NOTIFY_S1`、
-`ANCHOR`）在设备上表现异常，**尚未解决**：
+现象（修复前）：固定项 `KERNEL_TIMING` / `MAIN_INIT` / `ANCHOR` 全 0，
+动态项只有 `PREP_INIT_MAP`、`PREP_INIT_WS`、`PREP_NOTIFY_S1` 少量有值，
+`*_IterCount` 全 0；而 fwd_h / fwd_o 正常。排除了构建、切片布局和解析。
 
-- 固定项 `KERNEL_TIMING` / `MAIN_INIT` / `ANCHOR` 全 0；
-- 动态项只有 `PREP_INIT_MAP`、`PREP_INIT_WS`、`PREP_NOTIFY_S1` 有值，各 8 个核；
-  `PREP_K_UPLOAD`、`PREP_WAIT_*` 全 0；
-- `*_IterCount` 全 0（`PublishCounts` 未落盘）；
-- fwd_h / fwd_o 的 `KERNEL_TIMING` 正常，说明不是全局布局问题。
+根因：计时区的 GM 写回在写点多的大 kernel（prepare）上没有全部落盘。
+修复：启用 `ASCEND_TIMER_EXPLICIT_GM_PUBLISH=1`，并在 prepare / fwd_h / fwd_o 的
+`Process()` 末尾（`KERNEL_TIMING` 之后）调用 `timer_.Publish()`，逐 cache line 刷本核区域。
+`Publish()` 在被测窗口之外，不影响测量值。
 
-**已排除**：构建未更新（新枚举 type 27/28/35 已出现在数据里）、切片布局错位
-（`slice_words=448512`，fwd_h/fwd_o 都已按新布局写入）、解析丢数据
-（已加兜底，`rank_0_prepare_parsed.csv` 有 96 行）。
+修复后校验：`cores KERNEL>0 = 84`、`cores ANCHOR>0 = 84`，prepare 全部阶段可见。
+
+**注意**：解析器保留了一条兜底（KERNEL 缺失时用动态事件范围），以便旧数据还能读。
 
 **下一步**：在 `write_time()` 前后加设备 printf（只加日志），确认是"没写"还是"写了没落盘"；
 或写一个只记 4 个事件的极小 kernel 验证 publish 路径。定位前不要再用 prepare 的新窗口做结论。
