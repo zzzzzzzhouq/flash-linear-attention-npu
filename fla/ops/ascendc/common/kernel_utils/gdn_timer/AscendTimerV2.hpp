@@ -7,13 +7,15 @@ namespace AscendTimer
 {
 // ========== 1. 枚举定义（CPU/NPU 共用） ==========
 // 按 chunk_gated_delta_rule_fwd 三算子路径（Prepare / FwdH / FwdO）的实际阶段命名。
-// 规则：只给"计算/下发"窗口打点，不给 WaitFlag / CrossCoreWaitFlag / SyncAll 打点。
+// 规则：默认只给"计算/下发"窗口打点；诊断用的 Init 拆分与等待窗口在末尾单独列出，
+//       它们只包已有同步，不新增任何业务同步。
 // 固定计时项（整个 kernel 只跑一次）
 enum FixedTiming : int32_t
 {
     KERNEL_TIMING_IDX = 0, // 整体 kernel 墙钟（带 barrier 收尾）
     MAIN_INIT,             // Init -> InitDone
     MAIN_BODY,             // InitDone -> kernel 结束
+    ANCHOR,                // 每核在 body 起点的标记；各核减自己的 ANCHOR 得到“本核 body 时间”
     FIXED_TIMING_COUNT
 };
 
@@ -52,6 +54,20 @@ enum DynamicTimingType : int32_t
     FWO_MASK,            // V2：tril + 衰减 → A′；O_s′
     FWO_ATTN_V,          // C3：O_l = A′·v_new
     FWO_OUTPUT,          // V3：o = scale·(O_s′+O_l)
+
+    // ---- 诊断：Init 拆分 + 等待窗口（不改变上面任何既有窗口的定义）----
+    // Init 拆分用于回答"AIV Init 比 AIC 多 1.5us 花在哪"。
+    PREP_INIT_MAP,       // Init：InitOnChip 整体
+    PREP_INIT_WS,        // Init：workspace 绑定
+    PREP_INIT_GM,        // Init：GM SetGlobalBuffer 批次
+    // 等待窗口：只包已有 CrossCoreWaitFlag，不新增任何同步。
+    // 导出时用于断言 wait_end ≈ producer notify。
+    PREP_WAIT_S1,        // AIC：WaitAivStage1Done（producer = PREP_NOTIFY_S1）
+    PREP_WAIT_S3,        // AIC：WaitAivStage3Done（producer = PREP_KKT_EPI）
+    PREP_WAIT_S6,        // AIC：WaitAivStage6Done（producer = PREP_WU_K）
+    PREP_WAIT_S4,        // AIV：WaitAicStage4Done（producer = PREP_SOLVE_DUMP）
+    PREP_WAIT_CUBE,      // AIV：WaitCubeKktDone（producer = PREP_KKT_MM）
+    PREP_NOTIFY_S1,      // AIV：NotifyAicStage1Done 的瞬时点，跨核时间基准的校准锚
 
     DYNAMIC_TYPE_COUNT_ENUM
 };

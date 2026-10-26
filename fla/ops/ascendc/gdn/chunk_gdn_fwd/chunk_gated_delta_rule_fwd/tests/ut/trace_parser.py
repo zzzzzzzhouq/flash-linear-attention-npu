@@ -18,6 +18,7 @@ from parse_timer_csv import (
 )
 
 SLICE_ALIASES = ("prepare", "fwd_h", "fwd_o", "phase6")
+ANCHOR_NAME = "ANCHOR"
 
 
 def read_csv_rows(csv_path):
@@ -35,6 +36,8 @@ def collect_event_names(fieldnames):
         name = col[: -len("_start_cycle")]
         if name == KERNEL_TIMING_NAME:
             continue
+        if name == ANCHOR_NAME:
+            continue
         if is_accumulated(name):
             continue
         if f"{name}_end_cycle" in fields:
@@ -43,17 +46,18 @@ def collect_event_names(fieldnames):
 
 
 def find_min_start(csv_path):
-    """Return the minimum valid start cycle within a single rank's CSV.
+    """Return the minimum valid start cycle within one rank's CSV.
 
     Each rank runs on a separate NPU whose hardware cycle counter has its own
-    absolute origin, so every rank must be zeroed against its own minimum start
-    rather than a shared global base; otherwise ranks with a higher counter
-    origin appear to begin tens of milliseconds into the timeline.
+    absolute origin, so every rank must be zeroed against its own minimum start.
+    ANCHOR is intentionally NOT used here: it is recorded at the body entry on
+    every core without a rendezvous, so subtracting it per core only gives a
+    "time inside this core's body" view. That view is opt-in (--align-anchor).
     """
     if not csv_path.exists():
         return 0
-    min_start = None
     fieldnames, rows = read_csv_rows(csv_path)
+    min_start = None
     for event in collect_event_names(fieldnames):
         start_col = f"{event}_start_cycle"
         end_col = f"{event}_end_cycle"
@@ -65,7 +69,103 @@ def find_min_start(csv_path):
     return min_start if min_start is not None else 0
 
 
-def generate_trace_json(csv_path, rank, base_cycle, cycles_per_us=None, shared_clock=False):
+def anchor_spread_us(fieldnames, rows, cycles_per_us):
+    """Spread of per-core ANCHOR: the direct proof (or refutation) of a common base."""
+    col = f"{ANCHOR_NAME}_start_cycle"
+    if col not in set(fieldnames):
+        return None
+    vals = [int(row[col]) for row in rows if int(row[col]) > 0]
+    if not vals:
+        return None
+    return (max(vals) - min(vals)) / cycles_per_us
+
+
+def _interval(row, name):
+    start_col, end_col = f"{name}_start_cycle", f"{name}_end_cycle"
+    if start_col not in row or end_col not in row:
+        return None
+    start, end = int(row[start_col]), int(row[end_col])
+    return (start, end) if start > 0 and end >= start else None
+
+
+def check_dependencies(fieldnames, rows, cycles_per_us, tol_us=0.5):
+    """Assert the producer/consumer order that the kernel's flags guarantee.
+
+    Every check is a necessary condition of the code, independent of how the
+    timestamps happen to line up:
+      * AIC KKT         after AIV stage1 upload (NotifyAicStage1Done)
+      * AIC solve issue after AIV stage3 epilogue (WaitAivStage3Done)
+      * AIC W/U issue   after AIV stage6 WU_K upload (WaitAivStage6Done)
+      * wait windows    end inside their producer's window
+    Returns (violations, lines) where each line is a printable report row.
+    """
+    groups = {}
+    for row in rows:
+        groups.setdefault(int(row["group_id"]), {})[(row["core_type"], int(row["sub_id"]))] = row
+    violations, lines = [], []
+
+    def first(rows_of_group, event):
+        got = [_interval(r, event) for r in rows_of_group.values() if r is not None]
+        got = [g for g in got if g]
+        return got[0] if got else None
+
+    def span(rows_of_group, event):
+        got = [_interval(r, event) for r in rows_of_group.values() if r is not None]
+        got = [g for g in got if g]
+        return (min(g[0] for g in got), max(g[1] for g in got)) if got else None
+
+    checks = (
+        ("KKT vs stage1", "AIC", "PREP_KKT_MM_0", "AIV", "PREP_K_UPLOAD_0", "start"),
+        ("ISSUE vs stage3", "AIC", "PREP_SOLVE_ISSUE_0", "AIV", "PREP_KKT_EPI_0", "start"),
+        ("W_ISSUE vs WU_K", "AIC", "PREP_W_ISSUE_0", "AIV", "PREP_WU_K_0", "end"),
+    )
+    for group_id, members in sorted(groups.items()):
+        aic = {k: v for k, v in members.items() if k[0] == "AIC"}
+        aiv = {k: v for k, v in members.items() if k[0] == "AIV"}
+        if not aic or not aiv:
+            continue
+        for label, _, cevent, _, pevent, mode in checks:
+            consumer, producer = first(aic, cevent), span(aiv, pevent)
+            if consumer is None or producer is None:
+                continue
+            ref = producer[0] if mode == "start" else producer[1]
+            delta = (consumer[0] - ref) / cycles_per_us
+            ok = delta >= -tol_us
+            lines.append(f"  g{group_id:02d} {label:18s} {delta:+8.2f} us  {'OK' if ok else 'VIOLATION'}")
+            if not ok:
+                violations.append((group_id, label, delta))
+        # 等待窗口：优先用同一瞬间的 notify 校准，没有 notify 时退回 producer 窗口包含检查
+        tol_cycles = tol_us * cycles_per_us
+        for wait_name, notify_name, prod_name in (("PREP_WAIT_S1_0", "PREP_NOTIFY_S1_0", "PREP_K_UPLOAD_0"),
+                                                  ("PREP_WAIT_S3_0", None, "PREP_KKT_EPI_0"),
+                                                  ("PREP_WAIT_S6_0", None, "PREP_WU_K_0")):
+            wait = first(aic, wait_name)
+            if wait is None:
+                continue
+            notify = first(aiv, notify_name) if notify_name else None
+            if notify is not None:
+                delta = (wait[1] - notify[1]) / cycles_per_us
+                ok = abs(delta) <= tol_us
+                label = f"{wait_name} vs notify"
+                lines.append(f"  g{group_id:02d} {label:18s} {delta:+8.2f} us  "
+                             f"{'OK' if ok else 'VIOLATION'}")
+                if not ok:
+                    violations.append((group_id, label, delta))
+                continue
+            producer = span(aiv, prod_name)
+            if producer is None:
+                continue
+            ok = producer[0] - tol_cycles <= wait[1] <= producer[1] + tol_cycles
+            delta = (wait[1] - producer[0]) / cycles_per_us
+            lines.append(f"  g{group_id:02d} {wait_name:18s} end-prod.start {delta:+8.2f} us  "
+                         f"{'OK' if ok else 'VIOLATION'}")
+            if not ok:
+                violations.append((group_id, wait_name, delta))
+    return violations, lines
+
+
+def generate_trace_json(csv_path, rank, base_cycle, cycles_per_us=None, shared_clock=False,
+                        align_anchor=False):
     validate_frequency(cycles_per_us)
     if cycles_per_us is None or not shared_clock:
         raise ValueError("Perfetto requires verified cycles_per_us and shared_clock=True")
@@ -73,12 +173,17 @@ def generate_trace_json(csv_path, rank, base_cycle, cycles_per_us=None, shared_c
     events = collect_event_names(fieldnames)
     trace_events = []
 
+    anchor_col = f"{ANCHOR_NAME}_start_cycle"
     for row in rows:
         group_id = int(row["group_id"])
         core_type = row["core_type"]
         sub_id = int(row["sub_id"])
         tid = f"group_{group_id}_{core_type}_{sub_id}"
         pid = f"rank{rank}"
+        # ANCHOR 记录在 body 起点，且不强制全核会合；只有显式 --align-anchor 时
+        # 才用它做每核原点（视图变成“各自 body 内的时间”），默认仍用全局 min-start。
+        row_anchor = int(row[anchor_col]) if (align_anchor and anchor_col in row) else 0
+        base = row_anchor if row_anchor > 0 else base_cycle
 
         for event in events:
             start_col = f"{event}_start_cycle"
@@ -87,10 +192,12 @@ def generate_trace_json(csv_path, rank, base_cycle, cycles_per_us=None, shared_c
             end = int(row[end_col])
             if (start, end) == (0, 0):
                 continue
-            if start <= 0 or end < start or start < base_cycle:
+            if start <= 0 or end < start:
+                # start 可以早于 base（ANCHOR 之前的 Init 就是这种情况），
+                # 导出后表现为负 ts，Perfetto 能正常显示。
                 raise ValueError(f"invalid trace interval: {event}")
 
-            ts = (start - base_cycle) / cycles_per_us
+            ts = (start - base) / cycles_per_us
             dur = (end - start) / cycles_per_us
             trace_events.append({
                 "ph": "X",
@@ -127,6 +234,10 @@ def main():
     parser.add_argument("--output", default="all_rank_trace.json", help="Merged trace JSON file name")
     parser.add_argument("--cycles-per-us", type=float, required=True, help="verified clock frequency")
     parser.add_argument("--shared-clock", action="store_true", help="assert verified common clock")
+    parser.add_argument("--tol-us", type=float, default=0.5, help="allowed dependency violation (us)")
+    parser.add_argument("--strict", action="store_true", help="exit non-zero when a dependency is violated")
+    parser.add_argument("--align-anchor", action="store_true",
+                        help="use each core's ANCHOR as its origin (per-core body view)")
     args = parser.parse_args()
     validate_frequency(args.cycles_per_us)
     if not args.shared_clock:
@@ -146,8 +257,23 @@ def main():
                 print(f"[SKIP] rank_{rank}/{slice_name}: 文件不存在 {csv_path}")
                 continue
             base_cycle = find_min_start(csv_path)
+            fieldnames, rows = read_csv_rows(csv_path)
+            spread = anchor_spread_us(fieldnames, rows, args.cycles_per_us)
+            violations, lines = check_dependencies(fieldnames, rows, args.cycles_per_us, args.tol_us)
+            anchor_tag = "per-core ANCHOR" if (spread is not None and args.align_anchor) else "min-start"
+            print(f"[CHECK] rank_{rank}/{slice_name}: {'PASS' if not violations else 'FAIL'}"
+                  f" (base={anchor_tag})")
+            if spread is not None:
+                print(f"[ANCHOR] cores={len(rows)}  body-entry spread={spread:.3f} us"
+                      f"  (start skew + counter base; not a sync proof)")
+            for line in lines:
+                print(line)
+            if violations:
+                print(f"[CHECK] {len(violations)} violation(s); first = {violations[0]}")
+                if args.strict:
+                    raise SystemExit(2)
             rank_events = generate_trace_json(csv_path, rank, base_cycle, args.cycles_per_us,
-                                              args.shared_clock)
+                                              args.shared_clock, args.align_anchor)
             all_events.extend(rank_events)
             rank_output = output_dir / f"rank_{rank}_{slice_name}.json"
             with open(rank_output, "w", encoding="utf-8") as f:

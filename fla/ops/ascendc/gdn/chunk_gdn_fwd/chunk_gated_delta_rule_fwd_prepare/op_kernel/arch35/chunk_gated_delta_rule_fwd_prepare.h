@@ -44,51 +44,62 @@ public:
             timer_.TikNoBarrier();
             timerKernelStartCycle_ = timer_.GetStartCycle();
         }
-        InitOnChip();
-        GM_ADDR userWs = GetUserWorkspace(workspace);
-        const uint32_t wsBase = static_cast<uint32_t>(coreIdx) * kWsPerCoreBytes;
-        if (userWs != nullptr) {
-            gmWsY.SetGlobalBuffer(reinterpret_cast<__gm__ float *>(userWs + wsBase),
-                                  kWsYSlots * kWsYElems);
-        } else {
-            gmWsY.SetGlobalBuffer(reinterpret_cast<__gm__ float *>(uOut));
+        {
+            // 诊断：InitOnChip 只是地址视图，若这里耗时接近整个 Init，
+            // 说明时间花在首次取指/入口而不是建表。
+            GDN_TIMER_SCOPE(&timer_, AscendTimer::PREP_INIT_MAP);
+            InitOnChip();
         }
-        gmQ.SetGlobalBuffer(reinterpret_cast<__gm__ InDtype *>(q));
-        gmK.SetGlobalBuffer(reinterpret_cast<__gm__ InDtype *>(k));
-        gmV.SetGlobalBuffer(reinterpret_cast<__gm__ InDtype *>(v));
-        gmG.SetGlobalBuffer(reinterpret_cast<__gm__ GateDtype *>(g));
-        gmBeta.SetGlobalBuffer(reinterpret_cast<__gm__ GateDtype *>(beta));
-        if (aLog != nullptr) {
-            gmALog.SetGlobalBuffer(reinterpret_cast<__gm__ ALogDtype *>(aLog));
+        {
+            GDN_TIMER_SCOPE(&timer_, AscendTimer::PREP_INIT_WS);
+            GM_ADDR userWs = GetUserWorkspace(workspace);
+            const uint32_t wsBase = static_cast<uint32_t>(coreIdx) * kWsPerCoreBytes;
+            if (userWs != nullptr) {
+                gmWsY.SetGlobalBuffer(reinterpret_cast<__gm__ float *>(userWs + wsBase),
+                                      kWsYSlots * kWsYElems);
+            } else {
+                gmWsY.SetGlobalBuffer(reinterpret_cast<__gm__ float *>(uOut));
+            }
         }
-        if (dtBias != nullptr) {
-            gmDt.SetGlobalBuffer(reinterpret_cast<__gm__ ALogDtype *>(dtBias));
-        }
-        if (cu != nullptr) {
-            gmCu.SetGlobalBuffer(reinterpret_cast<__gm__ int64_t *>(cu));
-        }
-        if (idx != nullptr) {
-            gmIdx.SetGlobalBuffer(reinterpret_cast<__gm__ int64_t *>(idx));
-        }
-        gmGOut.SetGlobalBuffer(reinterpret_cast<__gm__ float *>(gOut));
-        gmW.SetGlobalBuffer(reinterpret_cast<__gm__ InDtype *>(wOut));
-        gmU.SetGlobalBuffer(reinterpret_cast<__gm__ InDtype *>(uOut));
-        if (outputA != 0) {
-            gmA.SetGlobalBuffer(reinterpret_cast<__gm__ InDtype *>(aOut));
-        }
-        if (useQkL2norm != 0) {
-            gmQHat.SetGlobalBuffer(reinterpret_cast<__gm__ InDtype *>(qHat));
-            gmKHat.SetGlobalBuffer(reinterpret_cast<__gm__ InDtype *>(kHat));
-            gmQRstd.SetGlobalBuffer(reinterpret_cast<__gm__ float *>(qRstd));
-            gmKRstd.SetGlobalBuffer(reinterpret_cast<__gm__ float *>(kRstd));
-        } else {
-            // Stage6 reloads k̂; without in-kernel L2Norm that is the k input.
-            gmKHat.SetGlobalBuffer(reinterpret_cast<__gm__ InDtype *>(k));
-        }
-        hasBetaOut = 0;
-        if (betaEff != nullptr) {
-            gmBetaEff.SetGlobalBuffer(reinterpret_cast<__gm__ float *>(betaEff));
-            hasBetaOut = 1;
+        {
+            GDN_TIMER_SCOPE(&timer_, AscendTimer::PREP_INIT_GM);
+            gmQ.SetGlobalBuffer(reinterpret_cast<__gm__ InDtype *>(q));
+            gmK.SetGlobalBuffer(reinterpret_cast<__gm__ InDtype *>(k));
+            gmV.SetGlobalBuffer(reinterpret_cast<__gm__ InDtype *>(v));
+            gmG.SetGlobalBuffer(reinterpret_cast<__gm__ GateDtype *>(g));
+            gmBeta.SetGlobalBuffer(reinterpret_cast<__gm__ GateDtype *>(beta));
+            if (aLog != nullptr) {
+                gmALog.SetGlobalBuffer(reinterpret_cast<__gm__ ALogDtype *>(aLog));
+            }
+            if (dtBias != nullptr) {
+                gmDt.SetGlobalBuffer(reinterpret_cast<__gm__ ALogDtype *>(dtBias));
+            }
+            if (cu != nullptr) {
+                gmCu.SetGlobalBuffer(reinterpret_cast<__gm__ int64_t *>(cu));
+            }
+            if (idx != nullptr) {
+                gmIdx.SetGlobalBuffer(reinterpret_cast<__gm__ int64_t *>(idx));
+            }
+            gmGOut.SetGlobalBuffer(reinterpret_cast<__gm__ float *>(gOut));
+            gmW.SetGlobalBuffer(reinterpret_cast<__gm__ InDtype *>(wOut));
+            gmU.SetGlobalBuffer(reinterpret_cast<__gm__ InDtype *>(uOut));
+            if (outputA != 0) {
+                gmA.SetGlobalBuffer(reinterpret_cast<__gm__ InDtype *>(aOut));
+            }
+            if (useQkL2norm != 0) {
+                gmQHat.SetGlobalBuffer(reinterpret_cast<__gm__ InDtype *>(qHat));
+                gmKHat.SetGlobalBuffer(reinterpret_cast<__gm__ InDtype *>(kHat));
+                gmQRstd.SetGlobalBuffer(reinterpret_cast<__gm__ float *>(qRstd));
+                gmKRstd.SetGlobalBuffer(reinterpret_cast<__gm__ float *>(kRstd));
+            } else {
+                // Stage6 reloads k̂; without in-kernel L2Norm that is the k input.
+                gmKHat.SetGlobalBuffer(reinterpret_cast<__gm__ InDtype *>(k));
+            }
+            hasBetaOut = 0;
+            if (betaEff != nullptr) {
+                gmBetaEff.SetGlobalBuffer(reinterpret_cast<__gm__ float *>(betaEff));
+                hasBetaOut = 1;
+            }
         }
         // Init -> InitDone 记为 MAIN_INIT。
         timer_.TokNoBarrier<Overwrite>(AscendTimer::MAIN_INIT);
@@ -349,10 +360,16 @@ public:
             L2NormK128VF<InDtype>(ubK[db], ubKHat[db], ubKRstd[db], static_cast<uint32_t>(nValid), kGdnL2NormEps);
             SetFlag<HardEvent::V_MTE3>(kHeUb0);
             WaitFlag<HardEvent::V_MTE3>(kHeUb0);
-            WaitAicStage4Done(taskIdx);
+            {
+                GDN_TIMER_SCOPE(&timer_, AscendTimer::PREP_WAIT_S4);
+                WaitAicStage4Done(taskIdx);
+            }
             GDN_TIMER_SCOPE(&timer_, AscendTimer::PREP_K_UPLOAD);
             UploadBf16NdToL1(l1K, ubKHat[db], static_cast<uint32_t>(K));
-            NotifyAicStage1Done(taskIdx);
+            {
+                GDN_TIMER_SCOPE(&timer_, AscendTimer::PREP_NOTIFY_S1);
+                NotifyAicStage1Done(taskIdx);
+            }
             DataCopy(gmKHat[offQk], ubKHat[db], nElem);
             CopyUbToGmElems(gmKRstd[offRstd], ubKRstd[db], static_cast<uint32_t>(nValid));
 
@@ -367,10 +384,16 @@ public:
         } else {
             SetFlag<HardEvent::MTE2_MTE3>(kHeUb0);
             WaitFlag<HardEvent::MTE2_MTE3>(kHeUb0);
-            WaitAicStage4Done(taskIdx);
+            {
+                GDN_TIMER_SCOPE(&timer_, AscendTimer::PREP_WAIT_S4);
+                WaitAicStage4Done(taskIdx);
+            }
             GDN_TIMER_SCOPE(&timer_, AscendTimer::PREP_K_UPLOAD);
             UploadBf16NdToL1(l1K, ubK[db], static_cast<uint32_t>(K));
-            NotifyAicStage1Done(taskIdx);
+            {
+                GDN_TIMER_SCOPE(&timer_, AscendTimer::PREP_NOTIFY_S1);
+                NotifyAicStage1Done(taskIdx);
+            }
         }
     }
 
@@ -522,7 +545,10 @@ public:
 
     __aicore__ inline void Stage3_AivOne(int64_t hv, int64_t taskIdx)
     {
-        WaitCubeKktDone(taskIdx);
+        {
+            GDN_TIMER_SCOPE(&timer_, AscendTimer::PREP_WAIT_CUBE);
+            WaitCubeKktDone(taskIdx);
+        }
         // 纯计算窗口：Tik 放在 WaitCubeKktDone 之后，到 NotifyAicStage3Done 之前。
         GDN_TIMER_SCOPE(&timer_, AscendTimer::PREP_KKT_EPI);
         const int32_t db = PingPongSlot(taskIdx);
@@ -909,7 +935,10 @@ public:
                 if (!OwnsHk(PackWorkId(cur.base, cur.nThis, t) % HV)) {
                     continue;
                 }
-                WaitAivStage1Done(t);
+                {
+                    GDN_TIMER_SCOPE(&timer_, AscendTimer::PREP_WAIT_S1);
+                    WaitAivStage1Done(t);
+                }
                 Stage2_AicOne(t, cur.nThis);
                 if (HRatio > 1) {
                     NotifyKktSiblings(cur.base, cur.nThis, t);
@@ -917,10 +946,16 @@ public:
             }
             Stage4_PrefillI(cur.nThis);
             if (cur.nThis > 0) {
-                WaitAivStage3Done(0);
+                {
+                    GDN_TIMER_SCOPE(&timer_, AscendTimer::PREP_WAIT_S3);
+                    WaitAivStage3Done(0);
+                }
                 Stage4_AccIssue(0);
                 for (int64_t t = 1; t < cur.nThis; ++t) {
-                    WaitAivStage3Done(t);
+                    {
+                        GDN_TIMER_SCOPE(&timer_, AscendTimer::PREP_WAIT_S3);
+                        WaitAivStage3Done(t);
+                    }
                     Stage4_AccIssue(t);
                     Stage4_Dump(t - 1);
                 }
@@ -937,7 +972,10 @@ public:
                 }
             }
             for (int64_t t = 0; t < cur.nThis; ++t) {
-                WaitAivStage6Done(t);
+                {
+                    GDN_TIMER_SCOPE(&timer_, AscendTimer::PREP_WAIT_S6);
+                    WaitAivStage6Done(t);
+                }
                 ChunkRange chunk;
                 int64_t hv;
                 DecodeTask(cur.base, cur.nThis, t, chunk, hv);
@@ -963,6 +1001,13 @@ public:
 
     __aicore__ inline void Process()
     {
+        // 诊断锚点：同一代码点各核各取一次 cycle，不加任何会合。
+        // 真正的跨核基准用 PREP_NOTIFY_S1（AIV）与 PREP_WAIT_S1（AIC）这一对
+        // 已有握手来校准；全核 SyncAll 需要 SetScheduleMode(1)，会改变调度，不采用。
+        if (timerKernelStartCycle_ != 0) {
+            timer_.TikNoBarrier();
+            timer_.TokNoBarrier<Overwrite>(AscendTimer::ANCHOR);
+        }
         timer_.TikNoBarrier(); // MAIN_BODY 起点（InitDone）
         if ASCEND_IS_AIV {
             ProcessAiv();
