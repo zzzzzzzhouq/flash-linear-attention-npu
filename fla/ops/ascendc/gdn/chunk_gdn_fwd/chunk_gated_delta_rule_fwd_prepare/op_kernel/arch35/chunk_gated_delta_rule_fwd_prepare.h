@@ -1020,6 +1020,8 @@ public:
         timer_.PublishCounts();
         timer_.Tik(timerKernelStartCycle_);
         timer_.Tok<Overwrite>(AscendTimer::KERNEL_TIMING_IDX);
+        // 收尾后把本核计时区刷到 GM；不加这一步时，写点多的大 kernel 会丢数据。
+        timer_.Publish();
     }
 
 private:

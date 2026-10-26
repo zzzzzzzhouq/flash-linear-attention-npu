@@ -92,6 +92,7 @@ public:
         timer_.PublishCounts();
         timer_.Tik(timerKernelStartCycle_);
         timer_.Tok<Overwrite>(AscendTimer::KERNEL_TIMING_IDX);
+        timer_.Publish();
     }
 
 private:
