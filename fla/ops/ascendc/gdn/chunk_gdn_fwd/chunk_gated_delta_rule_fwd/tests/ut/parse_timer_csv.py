@@ -293,7 +293,22 @@ def parse_and_dump(raw_csv_path, output_csv_path, cycles_per_us=None, slice_inde
             active = any(base_cycle_data[base_index:base_index + N_TIMING_COUNTER_PER_CORE_ALIGN]) or any(
                 dynamic_iter_data[count_start:count_start + DYNAMIC_ITER_PER_CORE_ALIGN])
             if active and not 0 < kernel_start <= kernel_end:
-                raise ValueError(f"incomplete {KERNEL_TIMING_NAME} at core {core_id}")
+                # 固定项可能没写（KERNEL/MAIN_INIT/ANCHOR 全 0），但动态事件是有效的。
+                # 用本核所有有效事件的 min(start)/max(end) 兜底，避免整片数据被丢掉。
+                starts, ends = [], []
+                for name_idx, name in enumerate(timing_names):
+                    logical_idx = timing_logical_idx(name_idx, name)
+                    event_idx = get_event_index(base_index, logical_idx) if logical_idx >= 0 else -1
+                    if 0 <= event_idx + 1 < len(base_cycle_data):
+                        s, e = base_cycle_data[event_idx], base_cycle_data[event_idx + 1]
+                        if s > 0 and e >= s:
+                            starts.append(s)
+                            ends.append(e)
+                if not starts:
+                    raise ValueError(f"incomplete {KERNEL_TIMING_NAME} at core {core_id}")
+                kernel_start, kernel_end = min(starts), max(ends)
+                print(f"[WARNING] incomplete {KERNEL_TIMING_NAME} at core {core_id}; "
+                      f"fall back to dynamic event bounds")
             row = [core_id, group_id, core_type, sub_id]
 
             for name_idx, name in enumerate(timing_names):
