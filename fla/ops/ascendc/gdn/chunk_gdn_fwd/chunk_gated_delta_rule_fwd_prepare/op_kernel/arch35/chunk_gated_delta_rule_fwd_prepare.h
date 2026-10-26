@@ -355,7 +355,10 @@ public:
 
         DataCopy(ubK[db], gmK[offQk], nElem);
         SetFlag<HardEvent::MTE2_V>(kHeUb0);
-        WaitFlag<HardEvent::MTE2_V>(kHeUb0);
+        {
+            GDN_TIMER_SCOPE(&timer_, AscendTimer::MTE2);
+            WaitFlag<HardEvent::MTE2_V>(kHeUb0);
+        }
         if (useQkL2norm != 0) {
             L2NormK128VF<InDtype>(ubK[db], ubKHat[db], ubKRstd[db], static_cast<uint32_t>(nValid), kGdnL2NormEps);
             SetFlag<HardEvent::V_MTE3>(kHeUb0);
@@ -375,7 +378,10 @@ public:
 
             DataCopy(ubQ[db], gmQ[offQk], nElem);
             SetFlag<HardEvent::MTE2_V>(kHeUb0);
-            WaitFlag<HardEvent::MTE2_V>(kHeUb0);
+            {
+                GDN_TIMER_SCOPE(&timer_, AscendTimer::MTE2);
+                WaitFlag<HardEvent::MTE2_V>(kHeUb0);
+            }
             L2NormK128VF<InDtype>(ubQ[db], ubQHat[db], ubQRstd[db], static_cast<uint32_t>(nValid), kGdnL2NormEps);
             SetFlag<HardEvent::V_MTE3>(kHeUb0);
             WaitFlag<HardEvent::V_MTE3>(kHeUb0);
@@ -450,7 +456,10 @@ public:
         const int32_t db = PingPongSlot(taskIdx);
         if (db == 0) {
             SetFlag<HardEvent::MTE3_MTE2>(kHeUb0);
-            WaitFlag<HardEvent::MTE3_MTE2>(kHeUb0);
+            {
+                GDN_TIMER_SCOPE(&timer_, AscendTimer::MTE3);
+                WaitFlag<HardEvent::MTE3_MTE2>(kHeUb0);
+            }
         }
         Stage1_PadTailIfNeeded(chunk, hv, taskIdx);
         Stage1_UploadK(chunk, hv, taskIdx);

@@ -69,6 +69,12 @@ enum DynamicTimingType : int32_t
     PREP_WAIT_CUBE,      // AIV：WaitCubeKktDone（producer = PREP_KKT_MM）
     PREP_NOTIFY_S1,      // AIV：NotifyAicStage1Done 的瞬时点，跨核时间基准的校准锚
 
+    // ---- 搬运等待（诊断）----
+    // MTE2：阻塞在"输入数据从 GM 到达"上（消费侧 WaitFlag<MTE2_V>）
+    // MTE3：阻塞在"上一轮写回完成 / 缓冲槽可复用"上（WaitFlag<MTE3_MTE2> 或 <MTE3_V>）
+    MTE2,
+    MTE3,
+
     DYNAMIC_TYPE_COUNT_ENUM
 };
 

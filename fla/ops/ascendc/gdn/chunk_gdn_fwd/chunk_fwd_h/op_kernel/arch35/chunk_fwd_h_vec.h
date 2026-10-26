@@ -660,11 +660,14 @@ private:
         uint32_t inputSlot)
     {
         const uint32_t slot = DataSlot(head);
-        if constexpr (SEPARATE_INPUT) {
-            AscendC::WaitFlag<AscendC::HardEvent::MTE2_V>(WorkReadyEvent(inputSlot));
-            AscendC::WaitFlag<AscendC::HardEvent::MTE2_V>(IoReadyEvent(slot));
-        } else {
-            AscendC::WaitFlag<AscendC::HardEvent::MTE2_V>(IoReadyEvent(slot));
+        {
+            GDN_TIMER_SCOPE(&timer_, AscendTimer::MTE2);
+            if constexpr (SEPARATE_INPUT) {
+                AscendC::WaitFlag<AscendC::HardEvent::MTE2_V>(WorkReadyEvent(inputSlot));
+                AscendC::WaitFlag<AscendC::HardEvent::MTE2_V>(IoReadyEvent(slot));
+            } else {
+                AscendC::WaitFlag<AscendC::HardEvent::MTE2_V>(IoReadyEvent(slot));
+            }
         }
         using PType = std::conditional_t<CompilePolicy::STATE_FP32, float, bfloat16_t>;
         __ubuf__ PType *p = reinterpret_cast<__ubuf__ PType *>(LocalSlot(slot).GetPhyAddr());
@@ -775,7 +778,10 @@ private:
         // Publish local-slot ownership to V before queuing next-chunk U/g on MTE2;
         // otherwise the current Stage1 would sit behind the lookahead transfer.
         const uint32_t slot = DataSlot(head);
-        AscendC::WaitFlag<AscendC::HardEvent::MTE3_MTE2>(IoFreeEvent(slot));
+        {
+            GDN_TIMER_SCOPE(&timer_, AscendTimer::MTE3);
+            AscendC::WaitFlag<AscendC::HardEvent::MTE3_MTE2>(IoFreeEvent(slot));
+        }
         AscendC::SetFlag<AscendC::HardEvent::MTE2_V>(IoReadyEvent(slot));
     }
 
@@ -814,7 +820,10 @@ private:
             for (uint32_t coreHeadId = 0; coreHeadId < localHeads; ++coreHeadId) {
                 const FwdHHeadBinding &head = unit.headRound.heads[aiv_ + 2 * coreHeadId];
                 const uint32_t slot = DataSlot(head);
-                AscendC::WaitFlag<AscendC::HardEvent::MTE3_MTE2>(IoFreeEvent(slot));
+                {
+                    GDN_TIMER_SCOPE(&timer_, AscendTimer::MTE3);
+                    AscendC::WaitFlag<AscendC::HardEvent::MTE3_MTE2>(IoFreeEvent(slot));
+                }
                 AscendC::GlobalTensor<bfloat16_t> u;
                 u.SetGlobalBuffer(reinterpret_cast<__gm__ bfloat16_t *>(args_.u));
                 u.SetL2CacheHint(AscendC::CacheMode::CACHE_MODE_DISABLE);

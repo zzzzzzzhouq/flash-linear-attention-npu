@@ -304,7 +304,10 @@ public:
                 }
                 LoadStage1G(loc, hvBase + headOffset, streamSlot_);
                 SetFlag<HardEvent::MTE2_V>(mte2ToV_[streamSlot_]);
-                WaitFlag<HardEvent::MTE2_V>(mte2ToV_[streamSlot_]);
+                {
+                    GDN_TIMER_SCOPE(timer_, AscendTimer::MTE2);
+                    WaitFlag<HardEvent::MTE2_V>(mte2ToV_[streamSlot_]);
+                }
                 ComputeStage1Gate(loc, streamSlot_, streamSlot_);
                 streamSlot_ ^= 1U;
             }
@@ -329,7 +332,10 @@ public:
                         ubBuf_.GetWithOffset<bfloat16_t>(matrixElems,
                                                          ChunkFwdOAPrimeBf16Offset(streamSlot_));
                     Catlass::Arch::CrossCoreWaitFlag(cubeToVecFlag_);
-                    WaitFlag<HardEvent::MTE3_V>(mte3ToVStream_[streamSlot_]);
+                    {
+                        GDN_TIMER_SCOPE(timer_, AscendTimer::MTE3);
+                        WaitFlag<HardEvent::MTE3_V>(mte3ToVStream_[streamSlot_]);
+                    }
                     if (loc.chunkLen == bt) {
                         // V2：tril + 衰减 → A′（满块变体）。
                         GDN_TIMER_SCOPE(timer_, AscendTimer::FWO_MASK);
@@ -392,7 +398,10 @@ public:
                     ubBuf_.GetWithOffset<float>(bt * vDim, ChunkFwdOOlOffset(streamSlot_));
                 LocalTensor<bfloat16_t> oOut =
                     ubBuf_.GetWithOffset<bfloat16_t>(bt * vDim, ChunkFwdOOlOffset(streamSlot_));
-                WaitFlag<HardEvent::MTE3_V>(mte3ToVStream_[streamSlot_]);
+                {
+                    GDN_TIMER_SCOPE(timer_, AscendTimer::MTE3);
+                    WaitFlag<HardEvent::MTE3_V>(mte3ToVStream_[streamSlot_]);
+                }
                 PipeBarrier<PIPE_V>();
                 {
                     // V3：o = scale·(O_s′ + O_l) 的融合输出窗口。
