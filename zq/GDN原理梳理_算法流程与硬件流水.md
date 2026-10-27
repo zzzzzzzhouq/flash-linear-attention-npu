@@ -531,6 +531,30 @@ GM 合计 **80KB**；VF 只有 0.06us。
 | `MTE2`             | AIV | 等输入从 GM 到达        | Prepare：k/q 载入；FwdH：u 到达；FwdO：g 到达                     |
 | `MTE3`             | AIV | 等上一轮写回完成 / 槽位可复用 | Prepare：MTE3_MTE2 水位；FwdH：IoFreeEvent；FwdO：mte3ToVStream |
 
+### C.5 为什么同一个打点一轮会出现多段
+
+**段数 = 这个打点在一次调度轮里被调用了几次**，由三件事决定：
+
+1. **调度单位**：Prepare 一轮 = 1 个 pack（4 个 task）；FwdH/FwdO 一轮 = 1 个 chunk 里的一个 head 组。
+2. **核内分工**：一颗 AIC 带两颗 AIV，AIV0 管奇数/偶数各一半，所以同一时刻两条 AIV 上各跑一份。
+3. **代码里有几个调用点**：有的 scope 包了两处代码，自然就有两段。
+
+| 打点                              | 每轮段数      | 原因                                                   |
+| ------------------------------- | --------- | ---------------------------------------------------- |
+| `PREP_KKT_MM` / `SOLVE` / `W_ISSUE` / `U_ISSUE` | **2 / pack** | pack 里 4 个 task，G = Hv/Hk = 2，只有 `hv % 2 == 0` 的两个 task 触发 KKT |
+| `PREP_K_UPLOAD` / `KKT_EPI` / `WU_K` / `WU_V` | **2 / pack / AIV** | AIV0 负责 task 0/2，AIV1 负责 1/3                          |
+| `PREP_SOLVE_DUMP`               | **4 / pack** | 一个 task 里有两处（S4-dump、S5-dump），再乘 2 个 owner task     |
+| `PREP_U_ISSUE`                 | 2 / task（V=256） | 128 列拆成两个半块                                          |
+| `FWH_PREFETCH`                 | 2 / chunk | W 和 kg 两个调用点                                         |
+| `FWH_WH_MM` / `KV_MM`          | 4 / chunk | 每个 head 调一次（一个 work unit 最多 4 个 head）                |
+| `FWH_VNEW` / `STATE`           | 2 / chunk | 每个 AIV 只负责其中 2 个 head                               |
+| `FWO_QK` / `QH` / `ATTN_V`     | 4 / head 组 | 每个 head 调一次                                          |
+| `FWO_GATE` / `MASK` / `OUTPUT` | 2 / chunk / AIV | `taskGroupSize = 4`，两个 AIV 各分 2 个 head               |
+| `MTE2` / `MTE3`                | 多段        | 多个 wait 点共用一个名字，按时间先后依次记录                            |
+
+> 名字后面的 `_0`、`_1` 是**每核的调用序号**，不是"把一段拆成两半"。
+> 所以看到两段，先问：它是哪两个 head / 哪个 HK？再看两段的时长差——第一段通常会带冷启动。
+
 ---
 
 ## 附录 D：术语表
