@@ -336,42 +336,44 @@ public:
                         GDN_TIMER_SCOPE(timer_, AscendTimer::MTE3);
                         WaitFlag<HardEvent::MTE3_V>(mte3ToVStream_[streamSlot_]);
                     }
-                    if (loc.chunkLen == bt) {
-                        // V2：tril + 衰减 → A′（满块变体）。
+                    {
+                        // V2 全段：tril + 衰减 → A′，并把 A′ 写进 L1（供 Stage4 直接读）。
                         GDN_TIMER_SCOPE(timer_, AscendTimer::FWO_MASK);
-                        AscendC::VF_CALL<Stage3Gate64VF<true>>(
-                            reinterpret_cast<__ubuf__ bfloat16_t *>(aPrimeBf16.GetPhyAddr()),
-                            reinterpret_cast<__ubuf__ float *>(oSPrime.GetPhyAddr()),
-                            reinterpret_cast<__ubuf__ float *>(aRaw.GetPhyAddr()),
-                            reinterpret_cast<__ubuf__ float *>(gateA.GetPhyAddr()),
-                            reinterpret_cast<__ubuf__ float *>(gateO.GetPhyAddr()),
-                            static_cast<uint16_t>(loc.chunkLen));
-                    } else {
-                        // V2：tril + 衰减 → A′（尾块变体）。
-                        GDN_TIMER_SCOPE(timer_, AscendTimer::FWO_MASK);
-                        AscendC::VF_CALL<Stage3Gate64VF<false>>(
-                            reinterpret_cast<__ubuf__ bfloat16_t *>(aPrimeBf16.GetPhyAddr()),
-                            reinterpret_cast<__ubuf__ float *>(oSPrime.GetPhyAddr()),
-                            reinterpret_cast<__ubuf__ float *>(aRaw.GetPhyAddr()),
-                            reinterpret_cast<__ubuf__ float *>(gateA.GetPhyAddr()),
-                            reinterpret_cast<__ubuf__ float *>(gateO.GetPhyAddr()),
-                            static_cast<uint16_t>(loc.chunkLen));
-                    }
-                    SetFlag<HardEvent::V_MTE3>(vToMte3Stream_[streamSlot_]);
-                    WaitFlag<HardEvent::V_MTE3>(vToMte3Stream_[streamSlot_]);
+                        if (loc.chunkLen == bt) {
+                            // 满块变体。
+                            AscendC::VF_CALL<Stage3Gate64VF<true>>(
+                                reinterpret_cast<__ubuf__ bfloat16_t *>(aPrimeBf16.GetPhyAddr()),
+                                reinterpret_cast<__ubuf__ float *>(oSPrime.GetPhyAddr()),
+                                reinterpret_cast<__ubuf__ float *>(aRaw.GetPhyAddr()),
+                                reinterpret_cast<__ubuf__ float *>(gateA.GetPhyAddr()),
+                                reinterpret_cast<__ubuf__ float *>(gateO.GetPhyAddr()),
+                                static_cast<uint16_t>(loc.chunkLen));
+                        } else {
+                            // 尾块变体。
+                            AscendC::VF_CALL<Stage3Gate64VF<false>>(
+                                reinterpret_cast<__ubuf__ bfloat16_t *>(aPrimeBf16.GetPhyAddr()),
+                                reinterpret_cast<__ubuf__ float *>(oSPrime.GetPhyAddr()),
+                                reinterpret_cast<__ubuf__ float *>(aRaw.GetPhyAddr()),
+                                reinterpret_cast<__ubuf__ float *>(gateA.GetPhyAddr()),
+                                reinterpret_cast<__ubuf__ float *>(gateO.GetPhyAddr()),
+                                static_cast<uint16_t>(loc.chunkLen));
+                        }
+                        SetFlag<HardEvent::V_MTE3>(vToMte3Stream_[streamSlot_]);
+                        WaitFlag<HardEvent::V_MTE3>(vToMte3Stream_[streamSlot_]);
 
-                    LocalTensor<bfloat16_t> l1APrime =
-                        resource_.l1Buf.template GetBufferByByte<bfloat16_t>(
-                            ChunkFwdOL1APrimeOffset(static_cast<uint32_t>(headOffset)));
-                    DataCopyParams aPrimeL1CopyParams;
-                    aPrimeL1CopyParams.blockCount = bt;
-                    aPrimeL1CopyParams.blockLen = 1;
-                    aPrimeL1CopyParams.srcGap = bt / 16U - 1U;
-                    aPrimeL1CopyParams.dstGap = 0;
-                    for (uint32_t colBlock = 0; colBlock < bt / 16U; ++colBlock) {
-                        const uint32_t dstOffset = colBlock * bt * 16U;
-                        const uint32_t srcOffset = colBlock * 16U;
-                        DataCopy(l1APrime[dstOffset], aPrimeBf16[srcOffset], aPrimeL1CopyParams);
+                        LocalTensor<bfloat16_t> l1APrime =
+                            resource_.l1Buf.template GetBufferByByte<bfloat16_t>(
+                                ChunkFwdOL1APrimeOffset(static_cast<uint32_t>(headOffset)));
+                        DataCopyParams aPrimeL1CopyParams;
+                        aPrimeL1CopyParams.blockCount = bt;
+                        aPrimeL1CopyParams.blockLen = 1;
+                        aPrimeL1CopyParams.srcGap = bt / 16U - 1U;
+                        aPrimeL1CopyParams.dstGap = 0;
+                        for (uint32_t colBlock = 0; colBlock < bt / 16U; ++colBlock) {
+                            const uint32_t dstOffset = colBlock * bt * 16U;
+                            const uint32_t srcOffset = colBlock * 16U;
+                            DataCopy(l1APrime[dstOffset], aPrimeBf16[srcOffset], aPrimeL1CopyParams);
+                        }
                     }
                     SetFlag<HardEvent::MTE3_V>(mte3ToVStream_[streamSlot_]);
                     streamSlot_ ^= 1U;
@@ -404,24 +406,24 @@ public:
                 }
                 PipeBarrier<PIPE_V>();
                 {
-                    // V3：o = scale·(O_s′ + O_l) 的融合输出窗口。
+                    // V3 全段：o = scale·(O_s′ + O_l)，并写回 GM。
                     GDN_TIMER_SCOPE(timer_, AscendTimer::FWO_OUTPUT);
                     AscendC::VF_CALL<Stage5Fuse64VF>(
                         reinterpret_cast<__ubuf__ bfloat16_t *>(oOut.GetPhyAddr()),
                         reinterpret_cast<__ubuf__ float *>(oSPrime.GetPhyAddr()),
                         reinterpret_cast<__ubuf__ float *>(oL.GetPhyAddr()), tiling_.scale,
                         static_cast<uint16_t>(loc.chunkLen));
+                    SetFlag<HardEvent::V_MTE3>(vToMte3Event_[streamSlot_]);
+                    WaitFlag<HardEvent::V_MTE3>(vToMte3Event_[streamSlot_]);
+                    const int64_t oOffset = ChunkFwdOOOffset(tiling_, loc, hv);
+                    DataCopyExtParams outputCopyParams{
+                        static_cast<uint16_t>(loc.chunkLen),
+                        static_cast<uint32_t>(vDim * sizeof(bfloat16_t)),
+                        0,
+                        static_cast<uint32_t>((tiling_.vNumHead - 1) * vDim * sizeof(bfloat16_t)),
+                        0};
+                    DataCopyPad(oGm_[oOffset], oOut, outputCopyParams);
                 }
-                SetFlag<HardEvent::V_MTE3>(vToMte3Event_[streamSlot_]);
-                WaitFlag<HardEvent::V_MTE3>(vToMte3Event_[streamSlot_]);
-                const int64_t oOffset = ChunkFwdOOOffset(tiling_, loc, hv);
-                DataCopyExtParams outputCopyParams{
-                    static_cast<uint16_t>(loc.chunkLen),
-                    static_cast<uint32_t>(vDim * sizeof(bfloat16_t)),
-                    0,
-                    static_cast<uint32_t>((tiling_.vNumHead - 1) * vDim * sizeof(bfloat16_t)),
-                    0};
-                DataCopyPad(oGm_[oOffset], oOut, outputCopyParams);
                 SetFlag<HardEvent::MTE3_V>(mte3ToVStream_[streamSlot_]);
                 streamSlot_ ^= 1U;
             }

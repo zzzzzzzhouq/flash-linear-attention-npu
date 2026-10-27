@@ -380,7 +380,11 @@ private:
                                    tla::MakeShape(FWD_H_K, FWD_H_V));
         auto tensorL1H = tla::MakeTensor(L1HRight(hSlot), L1_H_LAYOUT, Catlass::Arch::PositionL1{});
         CopyGmToL1BS0<decltype(blockH)> copyH;
-        copyH(tensorL1H, blockH);
+        {
+            // H 的 GM→L1 预取（MTE2 下发窗口），与 W 共用 FWH_PREFETCH。
+            GDN_TIMER_SCOPE(&timer_, AscendTimer::FWH_PREFETCH);
+            copyH(tensorL1H, blockH);
+        }
         AscendC::SetFlag<AscendC::HardEvent::MTE2_MTE1>(HRightDoneEvent(hSlot));
     }
 

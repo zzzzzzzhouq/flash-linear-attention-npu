@@ -26,6 +26,7 @@ enum DynamicTimingType : int32_t
     PREP_RESIDENT_AUX,   // S0：常驻辅助（I_vcs/索引/清零）
     PREP_PAD_TAIL,       // S1-pre：尾块补齐（仅 tail 命中）
     PREP_K_UPLOAD,       // S1a：k̂ 归一化 + L1 上传（NotifyAicStage1Done 在窗口内）
+    PREP_Q_UPLOAD,       // S1a'：q̂ 归一化 + 导出（仅 useQkL2norm=1 时执行）
     PREP_GATE_BETA,      // S1b：gate cumsum / β sigmoid / 导出
     PREP_KKT_MM,         // S2：KKT = k̂·k̂ᵀ 的 MMAD（每 (chunk, HK) 一次）
     PREP_KKT_GATE,       // S3a：G=exp*(g_i−g_j) 与 I_vcs 拷贝（可与 KKT 并行）

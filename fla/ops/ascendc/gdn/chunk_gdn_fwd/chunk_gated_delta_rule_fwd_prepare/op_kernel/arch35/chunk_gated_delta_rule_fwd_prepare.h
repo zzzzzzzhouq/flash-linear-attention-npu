@@ -388,11 +388,16 @@ public:
                 GDN_TIMER_SCOPE(&timer_, AscendTimer::MTE2);
                 WaitFlag<HardEvent::MTE2_V>(kHeUb0);
             }
-            L2NormK128VF<InDtype>(ubQ[db], ubQHat[db], ubQRstd[db], static_cast<uint32_t>(nValid), kGdnL2NormEps);
-            SetFlag<HardEvent::V_MTE3>(kHeUb0);
-            WaitFlag<HardEvent::V_MTE3>(kHeUb0);
-            DataCopy(gmQHat[offQk], ubQHat[db], nElem);
-            CopyUbToGmElems(gmQRstd[offRstd], ubQRstd[db], static_cast<uint32_t>(nValid));
+            {
+                // q̂：归一化 + 导出 GM（DataCopy 由 MTE2 单独计量）。
+                GDN_TIMER_SCOPE(&timer_, AscendTimer::PREP_Q_UPLOAD);
+                L2NormK128VF<InDtype>(ubQ[db], ubQHat[db], ubQRstd[db],
+                                      static_cast<uint32_t>(nValid), kGdnL2NormEps);
+                SetFlag<HardEvent::V_MTE3>(kHeUb0);
+                WaitFlag<HardEvent::V_MTE3>(kHeUb0);
+                DataCopy(gmQHat[offQk], ubQHat[db], nElem);
+                CopyUbToGmElems(gmQRstd[offRstd], ubQRstd[db], static_cast<uint32_t>(nValid));
+            }
         } else {
             SetFlag<HardEvent::MTE2_MTE3>(kHeUb0);
             WaitFlag<HardEvent::MTE2_MTE3>(kHeUb0);
