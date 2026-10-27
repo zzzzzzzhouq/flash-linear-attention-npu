@@ -9,7 +9,6 @@
 #include "kernel_operator.h"
 #include "catlass/arch/cross_core_sync.hpp"
 #include "catlass/arch/resource.hpp"
-#include "kernel_utils/gdn_timer/AscendTimerV2_scope.hpp"
 #include "kernel_utils/vector/regbase.hpp"
 #include "../chunk_fwd_o_struct.h"
 #include "chunk_fwd_o_common.h"
@@ -305,8 +304,10 @@ public:
                 LoadStage1G(loc, hvBase + headOffset, streamSlot_);
                 SetFlag<HardEvent::MTE2_V>(mte2ToV_[streamSlot_]);
                 {
-                    GDN_TIMER_SCOPE(timer_, AscendTimer::MTE2);
+                    const int32_t iterMte2 = timer_->NextIter(AscendTimer::MTE2);
+                    timer_->TikNoBarrier(AscendTimer::MTE2, iterMte2);
                     WaitFlag<HardEvent::MTE2_V>(mte2ToV_[streamSlot_]);
+                    timer_->template TokNoBarrier<Overwrite>(AscendTimer::MTE2, iterMte2);
                 }
                 ComputeStage1Gate(loc, streamSlot_, streamSlot_);
                 streamSlot_ ^= 1U;
@@ -333,12 +334,15 @@ public:
                                                          ChunkFwdOAPrimeBf16Offset(streamSlot_));
                     Catlass::Arch::CrossCoreWaitFlag(cubeToVecFlag_);
                     {
-                        GDN_TIMER_SCOPE(timer_, AscendTimer::MTE3);
+                        const int32_t iterMte3 = timer_->NextIter(AscendTimer::MTE3);
+                        timer_->TikNoBarrier(AscendTimer::MTE3, iterMte3);
                         WaitFlag<HardEvent::MTE3_V>(mte3ToVStream_[streamSlot_]);
+                        timer_->template TokNoBarrier<Overwrite>(AscendTimer::MTE3, iterMte3);
                     }
                     {
-                        // V2 全段：tril + 衰减 → A′，并把 A′ 写进 L1（供 Stage4 直接读）。
-                        GDN_TIMER_SCOPE(timer_, AscendTimer::O_V2_MASK);
+                        // O_V2_MASK 全段：tril + 衰减 → A′，并把 A′ 写进 L1。
+                        const int32_t iterMask = timer_->NextIter(AscendTimer::O_V2_MASK);
+                        timer_->TikNoBarrier(AscendTimer::O_V2_MASK, iterMask);
                         if (loc.chunkLen == bt) {
                             // 满块变体。
                             AscendC::VF_CALL<Stage3Gate64VF<true>>(
@@ -374,6 +378,7 @@ public:
                             const uint32_t srcOffset = colBlock * 16U;
                             DataCopy(l1APrime[dstOffset], aPrimeBf16[srcOffset], aPrimeL1CopyParams);
                         }
+                        timer_->template TokNoBarrier<Overwrite>(AscendTimer::O_V2_MASK, iterMask);
                     }
                     SetFlag<HardEvent::MTE3_V>(mte3ToVStream_[streamSlot_]);
                     streamSlot_ ^= 1U;
@@ -401,13 +406,16 @@ public:
                 LocalTensor<bfloat16_t> oOut =
                     ubBuf_.GetWithOffset<bfloat16_t>(bt * vDim, ChunkFwdOOlOffset(streamSlot_));
                 {
-                    GDN_TIMER_SCOPE(timer_, AscendTimer::MTE3);
+                    const int32_t iterMte3 = timer_->NextIter(AscendTimer::MTE3);
+                    timer_->TikNoBarrier(AscendTimer::MTE3, iterMte3);
                     WaitFlag<HardEvent::MTE3_V>(mte3ToVStream_[streamSlot_]);
+                    timer_->template TokNoBarrier<Overwrite>(AscendTimer::MTE3, iterMte3);
                 }
                 PipeBarrier<PIPE_V>();
                 {
-                    // V3 全段：o = scale·(O_s′ + O_l)，并写回 GM。
-                    GDN_TIMER_SCOPE(timer_, AscendTimer::O_V3_OUTPUT);
+                    // O_V3_OUTPUT 全段：o = scale·(O_s′ + O_l)，并写回 GM。
+                    const int32_t iterOut = timer_->NextIter(AscendTimer::O_V3_OUTPUT);
+                    timer_->TikNoBarrier(AscendTimer::O_V3_OUTPUT, iterOut);
                     AscendC::VF_CALL<Stage5Fuse64VF>(
                         reinterpret_cast<__ubuf__ bfloat16_t *>(oOut.GetPhyAddr()),
                         reinterpret_cast<__ubuf__ float *>(oSPrime.GetPhyAddr()),
@@ -423,6 +431,7 @@ public:
                         static_cast<uint32_t>((tiling_.vNumHead - 1) * vDim * sizeof(bfloat16_t)),
                         0};
                     DataCopyPad(oGm_[oOffset], oOut, outputCopyParams);
+                    timer_->template TokNoBarrier<Overwrite>(AscendTimer::O_V3_OUTPUT, iterOut);
                 }
                 SetFlag<HardEvent::MTE3_V>(mte3ToVStream_[streamSlot_]);
                 streamSlot_ ^= 1U;
@@ -461,7 +470,9 @@ public:
 
     __aicore__ inline void ComputeStage1Gate(const ChunkFwdOChunkLoc &loc, uint32_t localSlot, uint32_t streamSlot)
     {
-        GDN_TIMER_SCOPE(timer_, AscendTimer::O_V1_GATE);
+        // O_V1_GATE：衰减因子 exp*(g)，从 Cast/Pad 到 gateA 写完（末尾有 PipeBarrier<PIPE_V> 作完成锚点）。
+        const int32_t iterGate = timer_->NextIter(AscendTimer::O_V1_GATE);
+        timer_->TikNoBarrier(AscendTimer::O_V1_GATE, iterGate);
         const uint32_t bt = static_cast<uint32_t>(CHUNK_FWD_O_A5_BT);
         const uint32_t gScratchOff = ChunkFwdOGScratchOffset(streamSlot);
 
@@ -492,6 +503,7 @@ public:
             (__ubuf__ float *)gateA.GetPhyAddr(), (__ubuf__ float *)gFp32.GetPhyAddr(),
             static_cast<uint16_t>(loc.chunkLen));
         PipeBarrier<PIPE_V>();
+        timer_->template TokNoBarrier<Overwrite>(AscendTimer::O_V1_GATE, iterGate);
     }
 
 private:

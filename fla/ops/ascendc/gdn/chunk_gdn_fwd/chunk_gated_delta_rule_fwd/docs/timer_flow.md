@@ -123,7 +123,7 @@ aclnn ChunkGatedDeltaRuleFwd
    arch35 走 `chunk_fwd_h_vec.h` 的单 VF 实现。落点改为：
    `ConsumeStage1Head` 的 `VF_CALL<FwdHStage1Arch35Vf<...>>`（`H_V1_VNEW`）与
    `ConsumeStage3Head` 的 `VF_CALL<FwdHStage3Arch35Vf<...>>`（`H_V2_STATE`）；
-   两者都有 `SCALAR_G` / 非 `SCALAR_G` 两支，两支各放一个同类型 scope。
+   两者都有 `SCALAR_G` / 非 `SCALAR_G` 两支，两支各放一对同类型 Tik/Tok（共用一个 iter）。
 2. **H_C1_WH / H_C2_KV 的 Tik 位置**：设计写"在 W/H/L0 等待之后"，实现放在
    `TileMmadS0` / `TileMmadS2` 调用前一刻（即 L1→L0 拷贝和 `MTE1_M`/`FIX_M` 等待之后），
    这样窗口内**不含任何等待**，只测 MMAD 下发。`LoadStage0W` / `LoadKg` 的 GM→L1
@@ -133,7 +133,7 @@ aclnn ChunkGatedDeltaRuleFwd
    覆盖 UploadBf16NdToL1 + `NotifyAicStage1Done` + q̂ 导出；S4 槽位等待本身
    以及等待之前的 DataCopy/L2Norm 不计入本窗口（未新增任何同步，等待仍按原位置执行）。
 4. **S4_PREFILL 逐 task**：`Stage4_PrefillI` 的 `I@I` 在 `nThis` 循环里，
-   每个 task 一个 scope、一个 iter，因此 `S4_PREFILL_N` 对应第 N 个 task。
+   每个 task 一对 Tik/Tok、一个 iter，因此 `S4_PREFILL_N` 对应第 N 个 task。
 5. **S4/S5 的 dump 分开计**：`Stage4_Dump`（L0C→GM workspace→L1）用 `S4_DUMP`，
    `Stage5_Dump`（L0C→GM A / L0C→L1 A）用 `S5_DUMP`，按 iter 递增区分。
 6. **FwdO 的 C3 与 V2 各有两支**：`ProcessStage4Head` 的满块/尾块两支各一个

@@ -18,7 +18,6 @@
 #include "catlass/gemm/tile/tile_copy.hpp"
 #include "catlass/gemm/tile/tile_mmad.hpp"
 #include "catlass/layout/layout.hpp"
-#include "kernel_utils/gdn_timer/AscendTimerV2_scope.hpp"
 #include "kernel_utils/tile/copy_l0c_to_ub.hpp"
 #include "../chunk_fwd_o_struct.h"
 #include "chunk_fwd_o_common.h"
@@ -249,6 +248,8 @@ private:
         WaitFlag<HardEvent::M_MTE1>(L0AEvent(avASlot));
         WaitFlag<HardEvent::M_MTE1>(L0BEvent(avBSlot));
         WaitFlag<HardEvent::FIX_M>(avCSlot);
+        // O_C3_ATTNV：O_l = A′·v_new，两个形状分支共用一个窗口，Tok 落在 M_FIX。
+        const int32_t iterAttn = timer_->NextIter(AscendTimer::O_C3_ATTNV);
         if (mActual == kBt) {
             auto layoutL0A = tla::MakeLayout<Element, LayoutTagL0A>(kBt, kBt);
             auto layoutL0B = tla::MakeLayout<Element, LayoutTagL0B>(kBt, kV);
@@ -265,11 +266,9 @@ private:
             CopyL1ToL0B{}(tileL0B, tileL1V);
             SetFlag<HardEvent::MTE1_M>(avCSlot);
             WaitFlag<HardEvent::MTE1_M>(avCSlot);
-            {
-                // C3：O_l = A′·v_new 的 MMAD 下发窗口。
-                GDN_TIMER_SCOPE(timer_, AscendTimer::O_C3_ATTNV);
-                TileMmad{}(tileL0C, tileL0A, tileL0B, kBt, kV, kBt, true, 0);
-            }
+            timer_->TikNoBarrier(AscendTimer::O_C3_ATTNV, iterAttn);
+            TileMmad{}(tileL0C, tileL0A, tileL0B, kBt, kV, kBt, true, 0);
+            timer_->template TokNoBarrier<Overwrite>(AscendTimer::O_C3_ATTNV, iterAttn);
         } else {
             auto layoutL0A = tla::MakeLayout<Element, LayoutTagL0A>(mActual, mActual);
             auto layoutL0B = tla::MakeLayout<Element, LayoutTagL0B>(mActual, kV);
@@ -285,11 +284,9 @@ private:
             CopyL1ToL0B{}(tileL0B, tileL1V);
             SetFlag<HardEvent::MTE1_M>(avCSlot);
             WaitFlag<HardEvent::MTE1_M>(avCSlot);
-            {
-                // C3：O_l = A′·v_new 的 MMAD 下发窗口（尾块变体）。
-                GDN_TIMER_SCOPE(timer_, AscendTimer::O_C3_ATTNV);
-                TileMmad{}(tensorL0C, tensorL0A, tensorL0B, true, 0);
-            }
+            timer_->TikNoBarrier(AscendTimer::O_C3_ATTNV, iterAttn);
+            TileMmad{}(tensorL0C, tensorL0A, tensorL0B, true, 0);
+            timer_->template TokNoBarrier<Overwrite>(AscendTimer::O_C3_ATTNV, iterAttn);
         }
         PipeBarrier<PIPE_M>();
         SetFlag<HardEvent::M_MTE1>(L0AEvent(avASlot));
@@ -308,6 +305,7 @@ private:
         CopyOlToUb copyOlToUb;
         SetFlag<HardEvent::M_FIX>(avCSlot);
         WaitFlag<HardEvent::M_FIX>(avCSlot);
+        timer_->template TokNoBarrier<Overwrite>(AscendTimer::O_C3_ATTNV, iterAttn);
         copyOlToUb(tensorOlUb, olTile, static_cast<uint8_t>(ownerSubBlock), 0);
         SetFlag<HardEvent::FIX_M>(avCSlot);
 
@@ -427,11 +425,10 @@ private:
         CopyQkL1ToL0B{}(tileQktL0B, tileL1K);
         SetFlag<HardEvent::MTE1_M>(qktCSlot);
         WaitFlag<HardEvent::MTE1_M>(qktCSlot);
-        {
-            // C1a：attn = q·kᵀ 的 MMAD 下发窗口。
-            GDN_TIMER_SCOPE(timer_, AscendTimer::O_C1A_QK);
-            QkTileMmad{}(tileQktL0C, tileQktL0A, tileQktL0B, m, m, kK, true, 0);
-        }
+        // O_C1A_QK：attn = q·kᵀ，从 MMAD 下发到 M_FIX（Cube 算完、L0C 可读）。
+        const int32_t iterQk = timer_->NextIter(AscendTimer::O_C1A_QK);
+        timer_->TikNoBarrier(AscendTimer::O_C1A_QK, iterQk);
+        QkTileMmad{}(tileQktL0C, tileQktL0A, tileQktL0B, m, m, kK, true, 0);
         SetFlag<HardEvent::M_MTE1>(L0AEvent(qktASlot));
         SetFlag<HardEvent::M_MTE1>(L0BEvent(qktBSlot));
 
@@ -447,6 +444,7 @@ private:
         CopyQktToUb copyQktToUb;
         SetFlag<HardEvent::M_FIX>(qktCSlot);
         WaitFlag<HardEvent::M_FIX>(qktCSlot);
+        timer_->template TokNoBarrier<Overwrite>(AscendTimer::O_C1A_QK, iterQk);
         copyQktToUb(tensorARawUb, qktTile, static_cast<uint8_t>(ownerSubBlock), 0);
         SetFlag<HardEvent::FIX_M>(qktCSlot);
         WaitFlag<HardEvent::MTE2_MTE1>(hEvent);
@@ -494,11 +492,10 @@ private:
         SetFlag<HardEvent::MTE1_M>(qhCSlot);
         WaitFlag<HardEvent::MTE1_M>(qhCSlot);
         SetFlag<HardEvent::MTE1_MTE2>(hEvent);
-        {
-            // C1b：O_s = q·h 的 MMAD 下发窗口。
-            GDN_TIMER_SCOPE(timer_, AscendTimer::O_C1B_QH);
-            QhTileMmad{}(tileQhL0C, tileQhL0A, tileQhL0B, m, kV, kK, true, 0);
-        }
+        // O_C1B_QH：O_s = q·h，从 MMAD 下发到 M_FIX。
+        const int32_t iterQh = timer_->NextIter(AscendTimer::O_C1B_QH);
+        timer_->TikNoBarrier(AscendTimer::O_C1B_QH, iterQh);
+        QhTileMmad{}(tileQhL0C, tileQhL0A, tileQhL0B, m, kV, kK, true, 0);
 
         PipeBarrier<PIPE_M>();
         SetFlag<HardEvent::M_MTE1>(L0AEvent(qhASlot));
@@ -516,6 +513,7 @@ private:
         CopyQhToUb copyQhToUb;
         SetFlag<HardEvent::M_FIX>(qhCSlot);
         WaitFlag<HardEvent::M_FIX>(qhCSlot);
+        timer_->template TokNoBarrier<Overwrite>(AscendTimer::O_C1B_QH, iterQh);
         copyQhToUb(tensorOSRawUb, qhTile, static_cast<uint8_t>(ownerSubBlock), 0);
         SetFlag<HardEvent::FIX_M>(qhCSlot);
 

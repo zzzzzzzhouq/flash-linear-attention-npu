@@ -11,7 +11,6 @@
 
 #include "../chunk_fwd_h_policy.h"
 #include "../chunk_fwd_h_utils.h"
-#include "kernel_utils/gdn_timer/AscendTimerV2_scope.hpp"
 #include "kernel_utils/vector/regbase.hpp"
 
 namespace GDN {
@@ -661,13 +660,15 @@ private:
     {
         const uint32_t slot = DataSlot(head);
         {
-            GDN_TIMER_SCOPE(&timer_, AscendTimer::MTE2);
+            const int32_t iterMte2 = timer_.NextIter(AscendTimer::MTE2);
+            timer_.TikNoBarrier(AscendTimer::MTE2, iterMte2);
             if constexpr (SEPARATE_INPUT) {
                 AscendC::WaitFlag<AscendC::HardEvent::MTE2_V>(WorkReadyEvent(inputSlot));
                 AscendC::WaitFlag<AscendC::HardEvent::MTE2_V>(IoReadyEvent(slot));
             } else {
                 AscendC::WaitFlag<AscendC::HardEvent::MTE2_V>(IoReadyEvent(slot));
             }
+            timer_.TokNoBarrier<Overwrite>(AscendTimer::MTE2, iterMte2);
         }
         using PType = std::conditional_t<CompilePolicy::STATE_FP32, float, bfloat16_t>;
         __ubuf__ PType *p = reinterpret_cast<__ubuf__ PType *>(LocalSlot(slot).GetPhyAddr());
@@ -689,20 +690,21 @@ private:
             AscendC::CrossCoreWaitFlag<0x4, PIPE_V>(
                 FwdHAivLocalFlag(FWD_H_P_READY_FLAG, head.localSlot));
         }
+        // H_V1_VNEW：V_new = cast_BF16(fp32(U) − fp32(P))，跨两个编译分支共用一个窗口。
+        const int32_t iterV1 = timer_.NextIter(AscendTimer::H_V1_VNEW);
+        timer_.TikNoBarrier(AscendTimer::H_V1_VNEW, iterV1);
         if constexpr (CompilePolicy::GATE_MODE == FwdHGateMode::SCALAR_G) {
-            // V1：V_new = cast_BF16(fp32(U) − fp32(P)) 的向量窗口。
-            GDN_TIMER_SCOPE(&timer_, AscendTimer::H_V1_VNEW);
             AscendC::VF_CALL<FwdHStage1Arch35Vf<HAS_P, true, WRITE_RIGHT, ZERO_STATE, PType>>(
                 reinterpret_cast<__ubuf__ bfloat16_t *>(WorkBf16Slot(inputSlot).GetPhyAddr()), p,
                 reinterpret_cast<__ubuf__ float *>(GateScaleSlot(inputSlot).GetPhyAddr()), right, state,
                 static_cast<uint16_t>(chunk.validTokens));
         } else {
-            GDN_TIMER_SCOPE(&timer_, AscendTimer::H_V1_VNEW);
             AscendC::VF_CALL<FwdHStage1Arch35Vf<HAS_P, false, WRITE_RIGHT, ZERO_STATE, PType>>(
                 reinterpret_cast<__ubuf__ bfloat16_t *>(WorkBf16Slot(inputSlot).GetPhyAddr()), p,
                 reinterpret_cast<__ubuf__ float *>(GateScaleSlot(inputSlot).GetPhyAddr()), right, state,
                 static_cast<uint16_t>(chunk.validTokens));
         }
+        timer_.TokNoBarrier<Overwrite>(AscendTimer::H_V1_VNEW, iterV1);
         if constexpr (HAS_P) {
             AscendC::CrossCoreSetFlag<0x4, PIPE_V>(
                 FwdHAivLocalFlag(FWD_H_P_FREE_FLAG, head.localSlot));
@@ -779,8 +781,10 @@ private:
         // otherwise the current Stage1 would sit behind the lookahead transfer.
         const uint32_t slot = DataSlot(head);
         {
-            GDN_TIMER_SCOPE(&timer_, AscendTimer::MTE3);
+            const int32_t iterMte3 = timer_.NextIter(AscendTimer::MTE3);
+            timer_.TikNoBarrier(AscendTimer::MTE3, iterMte3);
             AscendC::WaitFlag<AscendC::HardEvent::MTE3_MTE2>(IoFreeEvent(slot));
+            timer_.TokNoBarrier<Overwrite>(AscendTimer::MTE3, iterMte3);
         }
         AscendC::SetFlag<AscendC::HardEvent::MTE2_V>(IoReadyEvent(slot));
     }
@@ -821,8 +825,10 @@ private:
                 const FwdHHeadBinding &head = unit.headRound.heads[aiv_ + 2 * coreHeadId];
                 const uint32_t slot = DataSlot(head);
                 {
-                    GDN_TIMER_SCOPE(&timer_, AscendTimer::MTE3);
+                    const int32_t iterMte3 = timer_.NextIter(AscendTimer::MTE3);
+                    timer_.TikNoBarrier(AscendTimer::MTE3, iterMte3);
                     AscendC::WaitFlag<AscendC::HardEvent::MTE3_MTE2>(IoFreeEvent(slot));
+                    timer_.TokNoBarrier<Overwrite>(AscendTimer::MTE3, iterMte3);
                 }
                 AscendC::GlobalTensor<bfloat16_t> u;
                 u.SetGlobalBuffer(reinterpret_cast<__gm__ bfloat16_t *>(args_.u));
@@ -914,9 +920,10 @@ private:
         } else {
             hNext = reinterpret_cast<__ubuf__ bfloat16_t *>(StateBf16Slot(slot).GetPhyAddr());
         }
+        // H_V2_STATE：state = state·e^{Δg} + D，跨两个编译分支共用一个窗口。
+        const int32_t iterV2 = timer_.NextIter(AscendTimer::H_V2_STATE);
+        timer_.TikNoBarrier(AscendTimer::H_V2_STATE, iterV2);
         if constexpr (CompilePolicy::GATE_MODE == FwdHGateMode::SCALAR_G) {
-            // V2：state = state·e^{Δg} + D 的向量窗口。
-            GDN_TIMER_SCOPE(&timer_, AscendTimer::H_V2_STATE);
             AscendC::VF_CALL<FwdHStage3Arch35Vf<CompilePolicy::STATE_FP32, true, STATE_V_FIRST,
                                                 WRITE_H, ZERO_INIT, CompilePolicy::USE_EXP2, GateT>>(
                 reinterpret_cast<__ubuf__ bfloat16_t *>(StateBf16Slot(slot).GetPhyAddr()),
@@ -924,7 +931,6 @@ private:
                 reinterpret_cast<__ubuf__ GateT *>(GateSlot(gateSlot).GetPhyAddr()),
                 reinterpret_cast<__ubuf__ float *>(AlphaSlot(gateSlot).GetPhyAddr()), hNext);
         } else {
-            GDN_TIMER_SCOPE(&timer_, AscendTimer::H_V2_STATE);
             AscendC::VF_CALL<FwdHStage3Arch35Vf<CompilePolicy::STATE_FP32, false, STATE_V_FIRST,
                                                 WRITE_H, ZERO_INIT, CompilePolicy::USE_EXP2, GateT>>(
                 reinterpret_cast<__ubuf__ bfloat16_t *>(StateBf16Slot(slot).GetPhyAddr()),
@@ -932,6 +938,7 @@ private:
                 reinterpret_cast<__ubuf__ GateT *>(GateSlot(gateSlot).GetPhyAddr()),
                 reinterpret_cast<__ubuf__ float *>(AlphaSlot(gateSlot).GetPhyAddr()), hNext);
         }
+        timer_.TokNoBarrier<Overwrite>(AscendTimer::H_V2_STATE, iterV2);
         if constexpr (RELEASE_GATE_BANK) {
             static_assert(CompilePolicy::GATE_MODE == FwdHGateMode::SCALAR_G,
                           "cross-chunk gate banks are only used by scalar-g");
