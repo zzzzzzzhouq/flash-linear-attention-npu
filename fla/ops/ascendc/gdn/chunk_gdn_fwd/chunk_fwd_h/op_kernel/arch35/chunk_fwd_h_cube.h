@@ -23,6 +23,7 @@
 #include "kernel_utils/tile/copy_l0c_to_ub.hpp"
 #include "tla/layout.hpp"
 #include "tla/tensor.hpp"
+#include "kernel_utils/gdn_timer/AscendTimerV2_device.hpp"
 
 namespace GDN {
 

@@ -17,6 +17,7 @@
 #define CHUNK_FWD_O_ARCH35_A5_H
 
 #include "kernel_operator.h"
+#include "kernel_utils/gdn_timer/AscendTimerV2_device.hpp"
 #include "../chunk_fwd_o_struct.h"
 #include "chunk_fwd_o_common.h"
 #include "chunk_fwd_o_cube.h"

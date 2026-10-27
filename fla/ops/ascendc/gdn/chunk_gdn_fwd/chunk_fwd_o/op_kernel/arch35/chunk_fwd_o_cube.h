@@ -12,6 +12,7 @@
 #define CATLASS_ARCH 3510
 
 #include "kernel_operator.h"
+#include "kernel_utils/gdn_timer/AscendTimerV2_device.hpp"
 #include "catlass/arch/arch.hpp"
 #include "catlass/arch/cross_core_sync.hpp"
 #include "catlass/arch/resource.hpp"

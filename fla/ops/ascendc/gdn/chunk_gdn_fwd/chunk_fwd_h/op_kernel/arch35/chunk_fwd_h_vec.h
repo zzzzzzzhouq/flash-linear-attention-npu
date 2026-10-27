@@ -12,6 +12,7 @@
 #include "../chunk_fwd_h_policy.h"
 #include "../chunk_fwd_h_utils.h"
 #include "kernel_utils/vector/regbase.hpp"
+#include "kernel_utils/gdn_timer/AscendTimerV2_device.hpp"
 
 namespace GDN {
 

@@ -15,6 +15,7 @@
 #define CHUNK_GATED_DELTA_RULE_FWD_PREPARE_H
 
 #include "kernel_operator.h"
+#include "kernel_utils/gdn_timer/AscendTimerV2_device.hpp"
 #include "chunk_gated_delta_rule_fwd_prepare_common.h"
 #include "chunk_gated_delta_rule_fwd_prepare_vf.h"
 #include "chunk_gated_delta_rule_fwd_prepare_datacopy.h"

@@ -7,6 +7,7 @@
 #define CHUNK_FWD_O_ARCH35_VECTOR_H
 
 #include "kernel_operator.h"
+#include "kernel_utils/gdn_timer/AscendTimerV2_device.hpp"
 #include "catlass/arch/cross_core_sync.hpp"
 #include "catlass/arch/resource.hpp"
 #include "kernel_utils/vector/regbase.hpp"
