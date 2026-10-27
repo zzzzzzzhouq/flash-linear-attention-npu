@@ -1,11 +1,5 @@
 # GDN 原理梳理：算法逻辑流程与硬件流水
 
-> 日期：2026-10-26（汇报版）
-> 配图：本目录 `gdn_layer_flow_states.png`、`gdn_fla_npu_cv_flow.png`、`gdn_fla_npu_pipeline.png`
->
-> 读法：**先看第 0 节**（一页结论），再看第 3–5 节（账和原因），第 6 节是给讨论用的优化清单。
-> 第 1、2 节是背景，第 7 节与附录是数据口径和细节，汇报时可以跳过。
-
 ---
 
 ## 0. 一页读懂
@@ -463,26 +457,79 @@ GM 合计 **80KB**；VF 只有 0.06us。
 
 ---
 
-## 附录 C：打点名对照
+## 附录 C：打点名对照（按流程顺序）
 
-| 打点                  | 位置                        | 单元  | 量的是什么            |
-| ------------------- | ------------------------- | --- | ---------------- |
-| `PREP_K_UPLOAD`     | Prepare S1                | AIV | k̂ 归一化 + 上传 L1    |
-| `PREP_KKT_EPI`      | Prepare S3                | AIV | 取严格下三角 + 打包 + 送 L1 |
-| `PREP_WU_K` / `_V`  | Prepare S6                | AIV | kbg / vb 的缩放与上传   |
-| `PREP_SOLVE`        | Prepare S5                | AIC | 求逆第二步            |
-| `PREP_W_ISSUE`      | Prepare S7                | AIC | W = A·kbg 下发      |
-| `FWH_PREFETCH`      | FwdH C0                   | AIC | 下一块 W 的 GM→L1    |
-| `FWH_WH_MM`         | FwdH C1                   | AIC | P = w·S 下发        |
-| `FWH_VNEW`          | FwdH V1                   | AIV | v_new 计算窗口       |
-| `FWH_KV_MM`         | FwdH C2                   | AIC | h = kᵀ·v 下发       |
-| `FWH_STATE`         | FwdH V2                   | AIV | 状态递推窗口           |
-| `FWO_GATE`          | FwdO V1                   | AIV | 衰减因子             |
-| `FWO_QK` / `_QH`    | FwdO C1                   | AIC | attn / O_s 下发     |
-| `FWO_MASK`          | FwdO V2                   | AIV | 掩码 + 衰减 → A′      |
-| `FWO_ATTN_V`        | FwdO C3                   | AIC | O_l 下发           |
-| `FWO_OUTPUT`        | FwdO V3                   | AIV | 融合输出             |
-| `MTE2` / `MTE3`     | 三个 kernel 的消费侧 wait       | AIV | 等数据到达 / 等写回完成   |
+> 每个 kernel 从上往下就是它的执行顺序；"单元"是打点所在的核。
+> 固定项（`KERNEL_TIMING_IDX` / `MAIN_INIT` / `MAIN_BODY` / `ANCHOR`）三个 kernel 各有一份，见 C.4。
+
+### C.1 Prepare：S0 → S7
+
+| #  | 阶段        | 打点                     | 单元      | 量的是什么                          |
+| -- | --------- | ---------------------- | ------- | ------------------------------ |
+| 1  | Init      | `PREP_INIT_MAP`        | AIV/AIC | 建地址视图（每核一次）                    |
+| 2  | Init      | `PREP_INIT_WS`         | AIV/AIC | 绑 workspace                     |
+| 3  | Init      | `PREP_INIT_GM`         | AIV/AIC | GM SetGlobalBuffer 批次          |
+| 4  | S0        | `PREP_RESIDENT_AUX`    | AIV     | 常驻辅助：清零 4 个 leaf 槽 + AIV0 画单位阵  |
+| 5  | S1-pre    | `PREP_PAD_TAIL`        | AIV     | 尾块补零（仅 M<64 时执行）               |
+| 6  | S1a       | `PREP_K_UPLOAD`        | AIV     | k̂ 归一化 + 上传 L1                  |
+| 7  | S1b       | `PREP_GATE_BETA`       | AIV     | g′ 累加 + β sigmoid              |
+| 8  | S1 尾      | `PREP_NOTIFY_S1`       | AIV     | 通知 Cube 可以算 KKT（跨核时间校准锚点）      |
+| 9  | S2        | `PREP_KKT_MM`          | AIC     | KKT = k̂·k̂ᵀ 的 MMAD 下发           |
+| 10 | S3a       | `PREP_KKT_GATE`        | AIV     | G = exp\*(g_i−g_j) + I_vcs 拷贝   |
+| 11 | S3b       | `PREP_KKT_EPI`         | AIV     | L = KKT⊙G 取严格下三角 + 打包 + 送 L1    |
+| 12 | S4-pre    | `PREP_SOLVE_PREFILL`   | AIC     | I·I 预填充                        |
+| 13 | S4-issue  | `PREP_SOLVE_ISSUE`     | AIC     | Y = I + LeafLeft·(−L)           |
+| 14 | S4/S5-dump | `PREP_SOLVE_DUMP`     | AIC     | L0C → L1/UB                     |
+| 15 | S5        | `PREP_SOLVE`           | AIC     | A = (I+L)⁻¹                     |
+| 16 | S6a       | `PREP_WU_V`            | AIV     | vb = v·β（GM→UB→L1）              |
+| 17 | S6b       | `PREP_WU_K`            | AIV     | kbg = k̂·β·e^g（GM→UB→L1）        |
+| 18 | S7a       | `PREP_W_ISSUE`         | AIC     | W = A·kbg 下发                    |
+| 19 | S7b       | `PREP_U_ISSUE`         | AIC     | U = A·vb 下发                     |
+| 20 | 下一包       | `PREP_WU_DRAIN`        | AIV     | W/U 回写 GM                       |
+
+> 并行关系：S6（AIV）与 S4/S5（AIC）同时跑，S7 等 S6 与 S5 都完成。
+>
+> 等待项（只包已有同步，用来对齐生产/消费）：AIC 侧 `PREP_WAIT_S1`、`PREP_WAIT_S3`、`PREP_WAIT_S6`；
+> AIV 侧 `PREP_WAIT_S4`、`PREP_WAIT_CUBE`。
+
+### C.2 FwdH：C0 → C1 → V1 → C2 → V2
+
+| # | 阶段  | 打点             | 单元  | 量的是什么                          |
+| - | --- | -------------- | --- | ------------------------------ |
+| 1 | C0  | `FWH_PREFETCH` | AIC | 下一块 W / kg 的 GM→L1（lookahead）  |
+| 2 | C1  | `FWH_WH_MM`    | AIC | P = w·S 的 MMAD 下发               |
+| 3 | V1  | `FWH_VNEW`     | AIV | v_new = (u−P)⊙衰减 的向量窗口          |
+| 4 | C2  | `FWH_KV_MM`    | AIC | h = kᵀ·v_new 的 MMAD 下发          |
+| 5 | V2  | `FWH_STATE`    | AIV | S ← 衰减⊙S + h（置 H 就绪）           |
+
+> 这五步每 chunk 一轮，块间串行；C0 是给下一块准备的，和本轮 C1 重叠。
+
+### C.3 FwdO：V1 → C1a → C1b → V2 → C3 → V3
+
+| # | 阶段  | 打点             | 单元  | 量的是什么                          |
+| - | --- | -------------- | --- | ------------------------------ |
+| 1 | V1  | `FWO_GATE`     | AIV | 衰减因子 exp\*(g)                   |
+| 2 | C1a | `FWO_QK`       | AIC | attn = q·kᵀ 的 MMAD 下发           |
+| 3 | C1b | `FWO_QH`       | AIC | O_s = q·h 的 MMAD 下发             |
+| 4 | V2  | `FWO_MASK`     | AIV | tril + 衰减 → A′；O_s′             |
+| 5 | C3  | `FWO_ATTN_V`   | AIC | O_l = A′·v_new 的 MMAD 下发        |
+| 6 | V3  | `FWO_OUTPUT`   | AIV | o = scale·(O_s′ + O_l)          |
+
+> V1 与 C1a/C1b 是并行的（C1 不等 gate）；V2 → C3 → V3 是逐 head 接力。
+
+### C.4 公共项：固定项 + 搬运等待
+
+| 固定项                | 量的是什么                        |
+| ------------------ | ---------------------------- |
+| `KERNEL_TIMING_IDX` | kernel 整体墙钟（带 barrier 收尾）     |
+| `MAIN_INIT`        | Init → InitDone              |
+| `MAIN_BODY`        | InitDone → kernel 结束         |
+| `ANCHOR`           | 每核 body 起点，用来做跨核时间校准          |
+
+| 搬运等待（`e8852ef8` 新增） | 单元  | 量的是什么             | 挂在哪                                                    |
+| ------------------ | --- | ----------------- | ------------------------------------------------------ |
+| `MTE2`             | AIV | 等输入从 GM 到达        | Prepare：k/q 载入；FwdH：u 到达；FwdO：g 到达                     |
+| `MTE3`             | AIV | 等上一轮写回完成 / 槽位可复用 | Prepare：MTE3_MTE2 水位；FwdH：IoFreeEvent；FwdO：mte3ToVStream |
 
 ---
 
