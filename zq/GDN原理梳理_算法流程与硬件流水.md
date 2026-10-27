@@ -150,7 +150,7 @@ o  ← qᵀ · S                            ← 读状态
 > **同一 lane 内**的先后顺序、以及核间均衡度（max vs med）。
 >
 > **不可信的**：同一时刻"谁在跑、谁在等"；两条 lane 谁先谁后；cube 和 vector 的重叠程度。
-> 想判断"谁在等谁"，看每段的**未覆盖比例**和产消配对（`PREP_NOTIFY_S1` ↔ `PREP_WAIT_S1`），
+> 想判断"谁在等谁"，看每段的**未覆盖比例**和产消配对（`S1_NOTIFY` ↔ `S2_WAIT_S1`），
 > 不要看时间轴上谁在上面。
 
 ---
@@ -185,13 +185,13 @@ o  ← qᵀ · S                            ← 读状态
 
 | 步骤                          | 打点                | us/pack  | 单kernel占比   | 处理建议       |
 | --------------------------- | ----------------- | -------- | ---------- | ---------- |
-| **取严格下三角 + 切对角块 + 送 L1**    | `PREP_KKT_EPI`    | **2.32** | **26.2%**  | ★ 只算下三角    |
-| 算 kbg = k̂·β·e^g             | `PREP_WU_K`       | 1.10     | 12.4%      | ★ 与 vb 合并搬运 |
-| k̂ 归一化并上传 L1               | `PREP_K_UPLOAD`   | 1.06     | 12.0%      | 搬不动（非线性）   |
-| 算 vb = v·β                   | `PREP_WU_V`       | 0.96     | 10.9%      | ★ 与 kbg 合并  |
-| g′ 累加与 β 预处理                | `PREP_GATE_BETA`  | 0.44     | 5.0%       | 搬不动        |
-| W/U 回写 GM                   | `PREP_WU_DRAIN`   | 0.33     | 3.7%       | —          |
-| 算衰减权重 G                    | `PREP_KKT_GATE`   | 0.28     | 3.2%       | ★ 可折叠      |
+| **取严格下三角 + 切对角块 + 送 L1**    | `S3B_EPI`    | **2.32** | **26.2%**  | ★ 只算下三角    |
+| 算 kbg = k̂·β·e^g             | `S6_KBG`       | 1.10     | 12.4%      | ★ 与 vb 合并搬运 |
+| k̂ 归一化并上传 L1               | `S1A_KUPLOAD`   | 1.06     | 12.0%      | 搬不动（非线性）   |
+| 算 vb = v·β                   | `S6_VB`       | 0.96     | 10.9%      | ★ 与 kbg 合并  |
+| g′ 累加与 β 预处理                | `S1B_GATE_BETA`  | 0.44     | 5.0%       | 搬不动        |
+| W/U 回写 GM                   | `S7_DRAIN`   | 0.33     | 3.7%       | —          |
+| 算衰减权重 G                    | `S3A_GATE`   | 0.28     | 3.2%       | ★ 可折叠      |
 | 等待窗口                        | `WAIT_S4/CUBE`    | 0.26     | 2.9%       | —          |
 | **未覆盖（k̂ 的 load+norm 等）**    | —                 | 2.10     | **23.8%**  | 先补窗口量化     |
 
@@ -199,13 +199,13 @@ o  ← qᵀ · S                            ← 读状态
 
 | 步骤                    | 打点                   | us/pack | 单kernel占比   |
 | --------------------- | -------------------- | ------- | ---------- |
-| 求逆第二步 (I+L)⁻¹         | `PREP_SOLVE`         | 0.84    | 9.5%       |
-| 算 W = A·kbg           | `PREP_W_ISSUE`       | 0.84    | 9.5%       |
-| 求逆中间结果写回              | `PREP_SOLVE_DUMP`    | 0.44    | 5.0%       |
-| 求逆第一步 Y              | `PREP_SOLVE_ISSUE`   | 0.36    | 4.1%       |
-| 算 KKT                 | `PREP_KKT_MM`        | 0.24    | 2.7%       |
-| 单位阵预填充                | `PREP_SOLVE_PREFILL` | 0.16    | 1.8%       |
-| 算 U = A·vb             | `PREP_U_ISSUE`       | 0.16    | 1.8%       |
+| 求逆第二步 (I+L)⁻¹         | `S5_SOLVE`         | 0.84    | 9.5%       |
+| 算 W = A·kbg           | `S7_W`       | 0.84    | 9.5%       |
+| 求逆中间结果写回              | `S4_DUMP`    | 0.44    | 5.0%       |
+| 求逆第一步 Y              | `S4_ISSUE`   | 0.36    | 4.1%       |
+| 算 KKT                 | `S2_KKT`        | 0.24    | 2.7%       |
+| 单位阵预填充                | `S4_PREFILL` | 0.16    | 1.8%       |
+| 算 U = A·vb             | `S7_U`       | 0.16    | 1.8%       |
 | 等待窗口                  | `WAIT_S1/S3/S6`      | 0.40    | 4.5%       |
 | **空闲（等 AIV / 等自己的内存）** | —                    | 5.40    | **61.1%**  |
 
@@ -217,11 +217,11 @@ o  ← qᵀ · S                            ← 读状态
 
 | 步骤                          | 打点             | us/head-chunk | 单kernel占比   | 谁做的     |
 | --------------------------- | -------------- | ------------- | ---------- | ------- |
-| 预取下一块的 W/K                 | `FWH_PREFETCH` | 0.09          | 9.7%       | AIC     |
-| 算历史重复信息 P = w·S              | `FWH_WH_MM`    | 0.07          | 7.5%       | AIC     |
-| 扣历史 + 衰减得 v_update          | `FWH_VNEW`     | 0.04          | 4.3%       | AIV     |
-| 算本块写入量 h = kᵀ·v_update      | `FWH_KV_MM`    | 0.06          | 6.5%       | AIC     |
-| 状态递推 S ← 衰减⊙S + h           | `FWH_STATE`    | 0.02          | 2.2%       | AIV     |
+| 预取下一块的 W/K                 | `H_C0_PREFETCH` | 0.09          | 9.7%       | AIC     |
+| 算历史重复信息 P = w·S              | `H_C1_WH`    | 0.07          | 7.5%       | AIC     |
+| 扣历史 + 衰减得 v_update          | `H_V1_VNEW`     | 0.04          | 4.3%       | AIV     |
+| 算本块写入量 h = kᵀ·v_update      | `H_C2_KV`    | 0.06          | 6.5%       | AIC     |
+| 状态递推 S ← 衰减⊙S + h           | `H_V2_STATE`    | 0.02          | 2.2%       | AIV     |
 | **未覆盖（flag 接力 + GM 搬运）**     | —              | 0.65          | **69.9%**  | —       |
 
 打点只覆盖 30.1%，**两个 MMAD 只有 0.06–0.07us，Cube 完全不是瓶颈**。
@@ -240,9 +240,9 @@ o  ← qᵀ · S                            ← 读状态
 
 | 步骤                  | 打点             | med  | 次/核 | 单kernel占比  |
 | ------------------- | -------------- | ---- | --- | --------- |
-| 块内注意力 attn = q·kᵀ   | `FWO_QK`       | 0.04 | 101 | 2.0%      |
-| 块间项 O_s = q·h      | `FWO_QH`       | 0.04 | 202 | 3.9%      |
-| 块内项 O_l = A′·v_new | `FWO_ATTN_V`   | 0.04 | 202 | 3.9%      |
+| 块内注意力 attn = q·kᵀ   | `O_C1A_QK`       | 0.04 | 101 | 2.0%      |
+| 块间项 O_s = q·h      | `O_C1B_QH`       | 0.04 | 202 | 3.9%      |
+| 块内项 O_l = A′·v_new | `O_C3_ATTNV`   | 0.04 | 202 | 3.9%      |
 | **未覆盖（接力 + 组边界）**    | —              | —    | —   | **90.2%** |
 
 > QK 只有 101 次，是因为它**按 key head 算**：`attn = q·kᵀ` 与 value head 无关，
@@ -253,9 +253,9 @@ o  ← qᵀ · S                            ← 读状态
 
 | 步骤                  | 打点             | med  | 单kernel占比  |
 | ------------------- | -------------- | ---- | --------- |
-| 衰减因子 exp\*(g)       | `FWO_GATE`     | 0.05 | 2.5%      |
-| 因果掩码 + 衰减 → A′      | `FWO_MASK`     | 0.08 | 3.9%      |
-| 融合输出 o             | `FWO_OUTPUT`   | 0.05 | 2.5%      |
+| 衰减因子 exp\*(g)       | `O_V1_GATE`     | 0.05 | 2.5%      |
+| 因果掩码 + 衰减 → A′      | `O_V2_MASK`     | 0.08 | 3.9%      |
+| 融合输出 o             | `O_V3_OUTPUT`   | 0.05 | 2.5%      |
 | **未覆盖（接力 + 组边界）**    | —              | —    | **91.1%** |
 
 合计打点 18.6%（AIC 9.8% + AIV 8.8%），**81.4% 在窗口外**。
@@ -265,7 +265,7 @@ o  ← qᵀ · S                            ← 读状态
 AIV 侧每个 head 有 6 个 UB 读写点，但那 120KB 里只有 16KB 落 GM——它的时间不是"搬得多"，
 是"传球次数多"。
 
-> 补充：`FWO_GATE` 在图上"一次两段"是正常的。`taskGroupSize = 4`，AIV0 负责 head 0/2、
+> 补充：`O_V1_GATE` 在图上"一次两段"是正常的。`taskGroupSize = 4`，AIV0 负责 head 0/2、
 > AIV1 负责 1/3，所以每个 chunk 每个 AIV 调 2 次，两段是两个不同的 head。
 
 ---
@@ -287,7 +287,7 @@ Prepare 的 Cube 段只占 3–9%，FwdH/FwdO 的 MMAD 合计不到 0.2us/call�
 > 顺带纠正两个容易误判的现象：
 > - **"后半段只有 AIV 没有 AIC"**：采样上限（每核每项 64 次）造成的，AIC 每核迭代数是 AIV 的 2 倍，
 >   所以它的样本先用完；AIC 并没有停工。
-> - **"首块特别慢"**：`iter0` 要付指令取指和首次 GM 读的冷启动（`FWO_GATE` 首块 0.53us vs 稳态 0.097us），
+> - **"首块特别慢"**：`iter0` 要付指令取指和首次 GM 读的冷启动（`O_V1_GATE` 首块 0.53us vs 稳态 0.097us），
 >   不要拿 `max` 当稳态。
 
 ---
@@ -313,7 +313,7 @@ Prepare 的 Cube 段只占 3–9%，FwdH/FwdO 的 MMAD 合计不到 0.2us/call�
 
 #### ① Prepare 只算块下三角 + 合并 vb/kbg 搬运（30–50us）
 
-- **现象**：`PREP_KKT_EPI` 2.32us/pack（26.2%），做的是 64×64 全量逐元素乘，
+- **现象**：`S3B_EPI` 2.32us/pack（26.2%），做的是 64×64 全量逐元素乘，
   但下游只用严格下三角；vb 和 kbg 各自走一遍 GM→UB→L1（合计 23.3%）。
 - **依据**：上三角部分乘完就被丢掉；vb/kbg 是两次同构的行缩放，可以并成一次
   （k̂ 只读一次、UB 只写一次，L1 分两个槽位）。
@@ -365,7 +365,7 @@ Prepare 的 Cube 段只占 3–9%，FwdH/FwdO 的 MMAD 合计不到 0.2us/call�
 
 #### ⑥ 给 k̂ 的 load+norm 补窗口（仅为量化）
 
-`PREP_K_UPLOAD` 之前的 `DataCopy(ubK)` + `L2NormK128VF` 没有打点，
+`S1A_KUPLOAD` 之前的 `DataCopy(ubK)` + `L2NormK128VF` 没有打点，
 按覆盖率推算约 2.1us/pack（23.8%）。**先补窗口看清楚，再决定要不要融进 K_UPLOAD**。
 
 #### ⑦ 三段融合（~4us，暂缓）
@@ -483,41 +483,41 @@ GM 合计 **80KB**；VF 只有 0.06us。
 
 | #  | 阶段        | 打点                     | 单元      | 量的是什么                          |
 | -- | --------- | ---------------------- | ------- | ------------------------------ |
-| 1  | Init      | `PREP_INIT_MAP`        | AIV/AIC | 建地址视图（每核一次）                    |
-| 2  | Init      | `PREP_INIT_WS`         | AIV/AIC | 绑 workspace                     |
-| 3  | Init      | `PREP_INIT_GM`         | AIV/AIC | GM SetGlobalBuffer 批次          |
-| 4  | S0        | `PREP_RESIDENT_AUX`    | AIV     | 常驻辅助：清零 4 个 leaf 槽 + AIV0 画单位阵  |
-| 5  | S1-pre    | `PREP_PAD_TAIL`        | AIV     | 尾块补零（仅 M<64 时执行）               |
-| 6  | S1a       | `PREP_K_UPLOAD`        | AIV     | k̂ 归一化 + 上传 L1                  |
-| 7  | S1b       | `PREP_GATE_BETA`       | AIV     | g′ 累加 + β sigmoid              |
-| 8  | S1 尾      | `PREP_NOTIFY_S1`       | AIV     | 通知 Cube 可以算 KKT（跨核时间校准锚点）      |
-| 9  | S2        | `PREP_KKT_MM`          | AIC     | KKT = k̂·k̂ᵀ 的 MMAD 下发           |
-| 10 | S3a       | `PREP_KKT_GATE`        | AIV     | G = exp\*(g_i−g_j) + I_vcs 拷贝   |
-| 11 | S3b       | `PREP_KKT_EPI`         | AIV     | L = KKT⊙G 取严格下三角 + 打包 + 送 L1    |
-| 12 | S4-pre    | `PREP_SOLVE_PREFILL`   | AIC     | I·I 预填充                        |
-| 13 | S4-issue  | `PREP_SOLVE_ISSUE`     | AIC     | Y = I + LeafLeft·(−L)           |
-| 14 | S4/S5-dump | `PREP_SOLVE_DUMP`     | AIC     | L0C → L1/UB                     |
-| 15 | S5        | `PREP_SOLVE`           | AIC     | A = (I+L)⁻¹                     |
-| 16 | S6a       | `PREP_WU_V`            | AIV     | vb = v·β（GM→UB→L1）              |
-| 17 | S6b       | `PREP_WU_K`            | AIV     | kbg = k̂·β·e^g（GM→UB→L1）        |
-| 18 | S7a       | `PREP_W_ISSUE`         | AIC     | W = A·kbg 下发                    |
-| 19 | S7b       | `PREP_U_ISSUE`         | AIC     | U = A·vb 下发                     |
-| 20 | 下一包       | `PREP_WU_DRAIN`        | AIV     | W/U 回写 GM                       |
+| 1  | Init      | `INIT_MAP`        | AIV/AIC | 建地址视图（每核一次）                    |
+| 2  | Init      | `INIT_WS`         | AIV/AIC | 绑 workspace                     |
+| 3  | Init      | `INIT_GM`         | AIV/AIC | GM SetGlobalBuffer 批次          |
+| 4  | S0        | `S0_AUX`    | AIV     | 常驻辅助：清零 4 个 leaf 槽 + AIV0 画单位阵  |
+| 5  | S1-pre    | `S1_PRE_TAIL`        | AIV     | 尾块补零（仅 M<64 时执行）               |
+| 6  | S1a       | `S1A_KUPLOAD`        | AIV     | k̂ 归一化 + 上传 L1                  |
+| 7  | S1b       | `S1B_GATE_BETA`       | AIV     | g′ 累加 + β sigmoid              |
+| 8  | S1 尾      | `S1_NOTIFY`       | AIV     | 通知 Cube 可以算 KKT（跨核时间校准锚点）      |
+| 9  | S2        | `S2_KKT`          | AIC     | KKT = k̂·k̂ᵀ 的 MMAD 下发           |
+| 10 | S3a       | `S3A_GATE`        | AIV     | G = exp\*(g_i−g_j) + I_vcs 拷贝   |
+| 11 | S3b       | `S3B_EPI`         | AIV     | L = KKT⊙G 取严格下三角 + 打包 + 送 L1    |
+| 12 | S4-pre    | `S4_PREFILL`   | AIC     | I·I 预填充                        |
+| 13 | S4-issue  | `S4_ISSUE`     | AIC     | Y = I + LeafLeft·(−L)           |
+| 14 | S4/S5-dump | `S4_DUMP`     | AIC     | L0C → L1/UB                     |
+| 15 | S5        | `S5_SOLVE`           | AIC     | A = (I+L)⁻¹                     |
+| 16 | S6a       | `S6_VB`            | AIV     | vb = v·β（GM→UB→L1）              |
+| 17 | S6b       | `S6_KBG`            | AIV     | kbg = k̂·β·e^g（GM→UB→L1）        |
+| 18 | S7a       | `S7_W`         | AIC     | W = A·kbg 下发                    |
+| 19 | S7b       | `S7_U`         | AIC     | U = A·vb 下发                     |
+| 20 | 下一包       | `S7_DRAIN`        | AIV     | W/U 回写 GM                       |
 
 > 并行关系：S6（AIV）与 S4/S5（AIC）同时跑，S7 等 S6 与 S5 都完成。
 >
-> 等待项（只包已有同步，用来对齐生产/消费）：AIC 侧 `PREP_WAIT_S1`、`PREP_WAIT_S3`、`PREP_WAIT_S6`；
-> AIV 侧 `PREP_WAIT_S4`、`PREP_WAIT_CUBE`。
+> 等待项（只包已有同步，用来对齐生产/消费）：AIC 侧 `S2_WAIT_S1`、`S4_WAIT_S3`、`S7_WAIT_S6`；
+> AIV 侧 `S1_WAIT_S4`、`S3B_WAIT_KKT`。
 
 ### C.2 FwdH：C0 → C1 → V1 → C2 → V2
 
 | # | 阶段  | 打点             | 单元  | 量的是什么                          |
 | - | --- | -------------- | --- | ------------------------------ |
-| 1 | C0  | `FWH_PREFETCH` | AIC | 下一块 W / kg 的 GM→L1（lookahead）  |
-| 2 | C1  | `FWH_WH_MM`    | AIC | P = w·S 的 MMAD 下发               |
-| 3 | V1  | `FWH_VNEW`     | AIV | v_new = (u−P)⊙衰减 的向量窗口          |
-| 4 | C2  | `FWH_KV_MM`    | AIC | h = kᵀ·v_new 的 MMAD 下发          |
-| 5 | V2  | `FWH_STATE`    | AIV | S ← 衰减⊙S + h（置 H 就绪）           |
+| 1 | C0  | `H_C0_PREFETCH` | AIC | 下一块 W / kg 的 GM→L1（lookahead）  |
+| 2 | C1  | `H_C1_WH`    | AIC | P = w·S 的 MMAD 下发               |
+| 3 | V1  | `H_V1_VNEW`     | AIV | v_new = (u−P)⊙衰减 的向量窗口          |
+| 4 | C2  | `H_C2_KV`    | AIC | h = kᵀ·v_new 的 MMAD 下发          |
+| 5 | V2  | `H_V2_STATE`    | AIV | S ← 衰减⊙S + h（置 H 就绪）           |
 
 > 这五步每 chunk 一轮，块间串行；C0 是给下一块准备的，和本轮 C1 重叠。
 
@@ -525,12 +525,12 @@ GM 合计 **80KB**；VF 只有 0.06us。
 
 | # | 阶段  | 打点             | 单元  | 量的是什么                          |
 | - | --- | -------------- | --- | ------------------------------ |
-| 1 | V1  | `FWO_GATE`     | AIV | 衰减因子 exp\*(g)                   |
-| 2 | C1a | `FWO_QK`       | AIC | attn = q·kᵀ 的 MMAD 下发           |
-| 3 | C1b | `FWO_QH`       | AIC | O_s = q·h 的 MMAD 下发             |
-| 4 | V2  | `FWO_MASK`     | AIV | tril + 衰减 → A′；O_s′             |
-| 5 | C3  | `FWO_ATTN_V`   | AIC | O_l = A′·v_new 的 MMAD 下发        |
-| 6 | V3  | `FWO_OUTPUT`   | AIV | o = scale·(O_s′ + O_l)          |
+| 1 | V1  | `O_V1_GATE`     | AIV | 衰减因子 exp\*(g)                   |
+| 2 | C1a | `O_C1A_QK`       | AIC | attn = q·kᵀ 的 MMAD 下发           |
+| 3 | C1b | `O_C1B_QH`       | AIC | O_s = q·h 的 MMAD 下发             |
+| 4 | V2  | `O_V2_MASK`     | AIV | tril + 衰减 → A′；O_s′             |
+| 5 | C3  | `O_C3_ATTNV`   | AIC | O_l = A′·v_new 的 MMAD 下发        |
+| 6 | V3  | `O_V3_OUTPUT`   | AIV | o = scale·(O_s′ + O_l)          |
 
 > V1 与 C1a/C1b 是并行的（C1 不等 gate）；V2 → C3 → V3 是逐 head 接力。
 
@@ -558,15 +558,15 @@ GM 合计 **80KB**；VF 只有 0.06us。
 
 | 打点                              | 每轮段数      | 原因                                                   |
 | ------------------------------- | --------- | ---------------------------------------------------- |
-| `PREP_KKT_MM` / `SOLVE` / `W_ISSUE` / `U_ISSUE` | **2 / pack** | pack 里 4 个 task，G = Hv/Hk = 2，只有 `hv % 2 == 0` 的两个 task 触发 KKT |
-| `PREP_K_UPLOAD` / `KKT_EPI` / `WU_K` / `WU_V` | **2 / pack / AIV** | AIV0 负责 task 0/2，AIV1 负责 1/3                          |
-| `PREP_SOLVE_DUMP`               | **4 / pack** | 一个 task 里有两处（S4-dump、S5-dump），再乘 2 个 owner task     |
-| `PREP_U_ISSUE`                 | 2 / task（V=256） | 128 列拆成两个半块                                          |
-| `FWH_PREFETCH`                 | 2 / chunk | W 和 kg 两个调用点                                         |
-| `FWH_WH_MM` / `KV_MM`          | 4 / chunk | 每个 head 调一次（一个 work unit 最多 4 个 head）                |
-| `FWH_VNEW` / `STATE`           | 2 / chunk | 每个 AIV 只负责其中 2 个 head                               |
-| `FWO_QK` / `QH` / `ATTN_V`     | QK 2 / 组；QH、ATTN_V 各 4 / 组 | QK 按 HK 算（同组 HV 共用），另两个按 head 算 |
-| `FWO_GATE` / `MASK` / `OUTPUT` | 2 / chunk / AIV | `taskGroupSize = 4`，两个 AIV 各分 2 个 head               |
+| `S2_KKT` / `SOLVE` / `W_ISSUE` / `U_ISSUE` | **2 / pack** | pack 里 4 个 task，G = Hv/Hk = 2，只有 `hv % 2 == 0` 的两个 task 触发 KKT |
+| `S1A_KUPLOAD` / `KKT_EPI` / `WU_K` / `WU_V` | **2 / pack / AIV** | AIV0 负责 task 0/2，AIV1 负责 1/3                          |
+| `S4_DUMP`               | **4 / pack** | 一个 task 里有两处（S4-dump、S5-dump），再乘 2 个 owner task     |
+| `S7_U`                 | 2 / task（V=256） | 128 列拆成两个半块                                          |
+| `H_C0_PREFETCH`                 | 2 / chunk | W 和 kg 两个调用点                                         |
+| `H_C1_WH` / `KV_MM`          | 4 / chunk | 每个 head 调一次（一个 work unit 最多 4 个 head）                |
+| `H_V1_VNEW` / `STATE`           | 2 / chunk | 每个 AIV 只负责其中 2 个 head                               |
+| `O_C1A_QK` / `QH` / `ATTN_V`     | QK 2 / 组；QH、ATTN_V 各 4 / 组 | QK 按 HK 算（同组 HV 共用），另两个按 head 算 |
+| `O_V1_GATE` / `MASK` / `OUTPUT` | 2 / chunk / AIV | `taskGroupSize = 4`，两个 AIV 各分 2 个 head               |
 | `MTE2` / `MTE3`                | 多段        | 多个 wait 点共用一个名字，按时间先后依次记录                            |
 
 > 名字后面的 `_0`、`_1` 是**每核的调用序号**，不是"把一段拆成两半"。
