@@ -267,7 +267,7 @@ private:
             WaitFlag<HardEvent::MTE1_M>(avCSlot);
             {
                 // C3：O_l = A′·v_new 的 MMAD 下发窗口。
-                GDN_TIMER_SCOPE(timer_, AscendTimer::FWO_ATTN_V);
+                GDN_TIMER_SCOPE(timer_, AscendTimer::O_C3_ATTNV);
                 TileMmad{}(tileL0C, tileL0A, tileL0B, kBt, kV, kBt, true, 0);
             }
         } else {
@@ -287,7 +287,7 @@ private:
             WaitFlag<HardEvent::MTE1_M>(avCSlot);
             {
                 // C3：O_l = A′·v_new 的 MMAD 下发窗口（尾块变体）。
-                GDN_TIMER_SCOPE(timer_, AscendTimer::FWO_ATTN_V);
+                GDN_TIMER_SCOPE(timer_, AscendTimer::O_C3_ATTNV);
                 TileMmad{}(tensorL0C, tensorL0A, tensorL0B, true, 0);
             }
         }
@@ -429,7 +429,7 @@ private:
         WaitFlag<HardEvent::MTE1_M>(qktCSlot);
         {
             // C1a：attn = q·kᵀ 的 MMAD 下发窗口。
-            GDN_TIMER_SCOPE(timer_, AscendTimer::FWO_QK);
+            GDN_TIMER_SCOPE(timer_, AscendTimer::O_C1A_QK);
             QkTileMmad{}(tileQktL0C, tileQktL0A, tileQktL0B, m, m, kK, true, 0);
         }
         SetFlag<HardEvent::M_MTE1>(L0AEvent(qktASlot));
@@ -496,7 +496,7 @@ private:
         SetFlag<HardEvent::MTE1_MTE2>(hEvent);
         {
             // C1b：O_s = q·h 的 MMAD 下发窗口。
-            GDN_TIMER_SCOPE(timer_, AscendTimer::FWO_QH);
+            GDN_TIMER_SCOPE(timer_, AscendTimer::O_C1B_QH);
             QhTileMmad{}(tileQhL0C, tileQhL0A, tileQhL0B, m, kV, kK, true, 0);
         }
 

@@ -115,9 +115,9 @@ def check_dependencies(fieldnames, rows, cycles_per_us, tol_us=0.5):
         return (min(g[0] for g in got), max(g[1] for g in got)) if got else None
 
     checks = (
-        ("KKT vs stage1", "AIC", "PREP_KKT_MM_0", "AIV", "PREP_K_UPLOAD_0", "start"),
-        ("ISSUE vs stage3", "AIC", "PREP_SOLVE_ISSUE_0", "AIV", "PREP_KKT_EPI_0", "start"),
-        ("W_ISSUE vs WU_K", "AIC", "PREP_W_ISSUE_0", "AIV", "PREP_WU_K_0", "end"),
+        ("KKT vs stage1", "AIC", "S2_KKT_0", "AIV", "S1A_KUPLOAD_0", "start"),
+        ("ISSUE vs stage3", "AIC", "S4_ISSUE_0", "AIV", "S3B_EPI_0", "start"),
+        ("W_ISSUE vs WU_K", "AIC", "S7_W_0", "AIV", "S6_KBG_0", "end"),
     )
     for group_id, members in sorted(groups.items()):
         aic = {k: v for k, v in members.items() if k[0] == "AIC"}
@@ -136,9 +136,9 @@ def check_dependencies(fieldnames, rows, cycles_per_us, tol_us=0.5):
                 violations.append((group_id, label, delta))
         # 等待窗口：优先用同一瞬间的 notify 校准，没有 notify 时退回 producer 窗口包含检查
         tol_cycles = tol_us * cycles_per_us
-        for wait_name, notify_name, prod_name in (("PREP_WAIT_S1_0", "PREP_NOTIFY_S1_0", "PREP_K_UPLOAD_0"),
-                                                  ("PREP_WAIT_S3_0", None, "PREP_KKT_EPI_0"),
-                                                  ("PREP_WAIT_S6_0", None, "PREP_WU_K_0")):
+        for wait_name, notify_name, prod_name in (("S2_WAIT_S1_0", "S1_NOTIFY_0", "S1A_KUPLOAD_0"),
+                                                  ("S4_WAIT_S3_0", None, "S3B_EPI_0"),
+                                                  ("S7_WAIT_S6_0", None, "S6_KBG_0")):
             wait = first(aic, wait_name)
             if wait is None:
                 continue

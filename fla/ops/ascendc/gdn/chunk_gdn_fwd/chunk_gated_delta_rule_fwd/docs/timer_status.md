@@ -25,7 +25,7 @@
 所以同一 pack 内恒有：
 
 ```
-PREP_K_UPLOAD.start < notify < KKT_MM.start
+S1A_KUPLOAD.start < notify < KKT_MM.start
 ```
 
 "KKT 第一"来自两个叠加：
@@ -39,7 +39,7 @@ PREP_K_UPLOAD.start < notify < KKT_MM.start
 
 ## 3. 结论：图上的"KKT 在 K_UPLOAD 前面"是 issue 时刻，不是执行时刻
 
-新数据（含 `PREP_WAIT_*` / `PREP_NOTIFY_S1` / `ANCHOR`）可以定量说明这一点。group 0 的三条 lane：
+新数据（含 `S*_WAIT_*` / `S1_NOTIFY` / `ANCHOR`）可以定量说明这一点。group 0 的三条 lane：
 
 ```
 AIC : body 3.914  WAIT_S1_0 [4.558→5.033]  KKT_MM_0 [5.534→6.123]
@@ -60,7 +60,7 @@ AIV0: body 4.655  AUX [4.669→5.476] ...    K_UPLOAD [8.191→9.353]  NOTIFY [8
 
 - **执行顺序是对的**（k' 一定在 KKT 的 MTE1 装载之前写好），不是同步 bug，也不是时钟错位；
 - **图上画的是标量 issue 时刻**，标量跑在 pipe 前面，所以跨 lane 的先后没有意义；
-- `PREP_WAIT_*` 只有 0.02–0.08us 也是同一原因：它测的是"标量越过 wait 指令"的时间，
+- `S*_WAIT_*` 只有 0.02–0.08us 也是同一原因：它测的是"标量越过 wait 指令"的时间，
   不是 pipe 真正阻塞的时间，**不能用来量化等待**。
 
 **正确读法**：每条 lane 内看顺序和时长；跨 lane 只看总时长，不看相对位置。
@@ -77,7 +77,7 @@ prepare 的真实构成是 AIV 的搬运 + vector 运算（打点覆盖 77%）�
 ## 5. 已解决：prepare 计时数据只落一部分（`83ce802d`）
 
 现象（修复前）：固定项 `KERNEL_TIMING` / `MAIN_INIT` / `ANCHOR` 全 0，
-动态项只有 `PREP_INIT_MAP`、`PREP_INIT_WS`、`PREP_NOTIFY_S1` 少量有值，
+动态项只有 `INIT_MAP`、`INIT_WS`、`S1_NOTIFY` 少量有值，
 `*_IterCount` 全 0；而 fwd_h / fwd_o 正常。排除了构建、切片布局和解析。
 
 根因：计时区的 GM 写回在写点多的大 kernel（prepare）上没有全部落盘。

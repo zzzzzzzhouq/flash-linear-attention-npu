@@ -691,13 +691,13 @@ private:
         }
         if constexpr (CompilePolicy::GATE_MODE == FwdHGateMode::SCALAR_G) {
             // V1：V_new = cast_BF16(fp32(U) − fp32(P)) 的向量窗口。
-            GDN_TIMER_SCOPE(&timer_, AscendTimer::FWH_VNEW);
+            GDN_TIMER_SCOPE(&timer_, AscendTimer::H_V1_VNEW);
             AscendC::VF_CALL<FwdHStage1Arch35Vf<HAS_P, true, WRITE_RIGHT, ZERO_STATE, PType>>(
                 reinterpret_cast<__ubuf__ bfloat16_t *>(WorkBf16Slot(inputSlot).GetPhyAddr()), p,
                 reinterpret_cast<__ubuf__ float *>(GateScaleSlot(inputSlot).GetPhyAddr()), right, state,
                 static_cast<uint16_t>(chunk.validTokens));
         } else {
-            GDN_TIMER_SCOPE(&timer_, AscendTimer::FWH_VNEW);
+            GDN_TIMER_SCOPE(&timer_, AscendTimer::H_V1_VNEW);
             AscendC::VF_CALL<FwdHStage1Arch35Vf<HAS_P, false, WRITE_RIGHT, ZERO_STATE, PType>>(
                 reinterpret_cast<__ubuf__ bfloat16_t *>(WorkBf16Slot(inputSlot).GetPhyAddr()), p,
                 reinterpret_cast<__ubuf__ float *>(GateScaleSlot(inputSlot).GetPhyAddr()), right, state,
@@ -916,7 +916,7 @@ private:
         }
         if constexpr (CompilePolicy::GATE_MODE == FwdHGateMode::SCALAR_G) {
             // V2：state = state·e^{Δg} + D 的向量窗口。
-            GDN_TIMER_SCOPE(&timer_, AscendTimer::FWH_STATE);
+            GDN_TIMER_SCOPE(&timer_, AscendTimer::H_V2_STATE);
             AscendC::VF_CALL<FwdHStage3Arch35Vf<CompilePolicy::STATE_FP32, true, STATE_V_FIRST,
                                                 WRITE_H, ZERO_INIT, CompilePolicy::USE_EXP2, GateT>>(
                 reinterpret_cast<__ubuf__ bfloat16_t *>(StateBf16Slot(slot).GetPhyAddr()),
@@ -924,7 +924,7 @@ private:
                 reinterpret_cast<__ubuf__ GateT *>(GateSlot(gateSlot).GetPhyAddr()),
                 reinterpret_cast<__ubuf__ float *>(AlphaSlot(gateSlot).GetPhyAddr()), hNext);
         } else {
-            GDN_TIMER_SCOPE(&timer_, AscendTimer::FWH_STATE);
+            GDN_TIMER_SCOPE(&timer_, AscendTimer::H_V2_STATE);
             AscendC::VF_CALL<FwdHStage3Arch35Vf<CompilePolicy::STATE_FP32, false, STATE_V_FIRST,
                                                 WRITE_H, ZERO_INIT, CompilePolicy::USE_EXP2, GateT>>(
                 reinterpret_cast<__ubuf__ bfloat16_t *>(StateBf16Slot(slot).GetPhyAddr()),

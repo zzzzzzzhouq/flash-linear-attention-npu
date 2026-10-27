@@ -338,7 +338,7 @@ public:
                     }
                     {
                         // V2 全段：tril + 衰减 → A′，并把 A′ 写进 L1（供 Stage4 直接读）。
-                        GDN_TIMER_SCOPE(timer_, AscendTimer::FWO_MASK);
+                        GDN_TIMER_SCOPE(timer_, AscendTimer::O_V2_MASK);
                         if (loc.chunkLen == bt) {
                             // 满块变体。
                             AscendC::VF_CALL<Stage3Gate64VF<true>>(
@@ -407,7 +407,7 @@ public:
                 PipeBarrier<PIPE_V>();
                 {
                     // V3 全段：o = scale·(O_s′ + O_l)，并写回 GM。
-                    GDN_TIMER_SCOPE(timer_, AscendTimer::FWO_OUTPUT);
+                    GDN_TIMER_SCOPE(timer_, AscendTimer::O_V3_OUTPUT);
                     AscendC::VF_CALL<Stage5Fuse64VF>(
                         reinterpret_cast<__ubuf__ bfloat16_t *>(oOut.GetPhyAddr()),
                         reinterpret_cast<__ubuf__ float *>(oSPrime.GetPhyAddr()),
@@ -461,7 +461,7 @@ public:
 
     __aicore__ inline void ComputeStage1Gate(const ChunkFwdOChunkLoc &loc, uint32_t localSlot, uint32_t streamSlot)
     {
-        GDN_TIMER_SCOPE(timer_, AscendTimer::FWO_GATE);
+        GDN_TIMER_SCOPE(timer_, AscendTimer::O_V1_GATE);
         const uint32_t bt = static_cast<uint32_t>(CHUNK_FWD_O_A5_BT);
         const uint32_t gScratchOff = ChunkFwdOGScratchOffset(streamSlot);
 

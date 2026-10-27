@@ -47,11 +47,11 @@ public:
         {
             // 诊断：InitOnChip 只是地址视图，若这里耗时接近整个 Init，
             // 说明时间花在首次取指/入口而不是建表。
-            GDN_TIMER_SCOPE(&timer_, AscendTimer::PREP_INIT_MAP);
+            GDN_TIMER_SCOPE(&timer_, AscendTimer::INIT_MAP);
             InitOnChip();
         }
         {
-            GDN_TIMER_SCOPE(&timer_, AscendTimer::PREP_INIT_WS);
+            GDN_TIMER_SCOPE(&timer_, AscendTimer::INIT_WS);
             GM_ADDR userWs = GetUserWorkspace(workspace);
             const uint32_t wsBase = static_cast<uint32_t>(coreIdx) * kWsPerCoreBytes;
             if (userWs != nullptr) {
@@ -62,7 +62,7 @@ public:
             }
         }
         {
-            GDN_TIMER_SCOPE(&timer_, AscendTimer::PREP_INIT_GM);
+            GDN_TIMER_SCOPE(&timer_, AscendTimer::INIT_GM);
             gmQ.SetGlobalBuffer(reinterpret_cast<__gm__ InDtype *>(q));
             gmK.SetGlobalBuffer(reinterpret_cast<__gm__ InDtype *>(k));
             gmV.SetGlobalBuffer(reinterpret_cast<__gm__ InDtype *>(v));
@@ -277,7 +277,7 @@ public:
         if (auxReady != 0) {
             return;
         }
-        GDN_TIMER_SCOPE(&timer_, AscendTimer::PREP_RESIDENT_AUX);
+        GDN_TIMER_SCOPE(&timer_, AscendTimer::S0_AUX);
         FillVcsIdentity(ubIVcs, ubVcsIdx);
         // Leaf zeros first so both AIVs copy in parallel. ubS0Zero is then
         // free for AIV0 to paint I. AIV1 can leave for Stage1 while AIV0
@@ -322,7 +322,7 @@ public:
         if (nValid >= nPad) {
             return;
         }
-        GDN_TIMER_SCOPE(&timer_, AscendTimer::PREP_PAD_TAIL);
+        GDN_TIMER_SCOPE(&timer_, AscendTimer::S1_PRE_TAIL);
         if (OwnsHk(hv)) {
             Duplicate(ubK[db], static_cast<InDtype>(0), nPad * static_cast<int32_t>(K));
             if (useQkL2norm != 0) {
@@ -362,21 +362,21 @@ public:
         if (useQkL2norm != 0) {
             {
                 // k̂ 的完整一段：归一化（L2Norm）+ 等 L1 槽位 + 上传。
-                // DataCopy 由 MTE2 单独计量，不在本窗口内；PREP_WAIT_S4 是嵌套窗口，
+                // DataCopy 由 MTE2 单独计量，不在本窗口内；S1_WAIT_S4 是嵌套窗口，
                 // 纯计算 = K_UPLOAD - WAIT_S4。
-                GDN_TIMER_SCOPE(&timer_, AscendTimer::PREP_K_UPLOAD);
+                GDN_TIMER_SCOPE(&timer_, AscendTimer::S1A_KUPLOAD);
                 L2NormK128VF<InDtype>(ubK[db], ubKHat[db], ubKRstd[db], static_cast<uint32_t>(nValid),
                                       kGdnL2NormEps);
                 SetFlag<HardEvent::V_MTE3>(kHeUb0);
                 WaitFlag<HardEvent::V_MTE3>(kHeUb0);
                 {
-                    GDN_TIMER_SCOPE(&timer_, AscendTimer::PREP_WAIT_S4);
+                    GDN_TIMER_SCOPE(&timer_, AscendTimer::S1_WAIT_S4);
                     WaitAicStage4Done(taskIdx);
                 }
                 UploadBf16NdToL1(l1K, ubKHat[db], static_cast<uint32_t>(K));
             }
             {
-                GDN_TIMER_SCOPE(&timer_, AscendTimer::PREP_NOTIFY_S1);
+                GDN_TIMER_SCOPE(&timer_, AscendTimer::S1_NOTIFY);
                 NotifyAicStage1Done(taskIdx);
             }
             DataCopy(gmKHat[offQk], ubKHat[db], nElem);
@@ -390,7 +390,7 @@ public:
             }
             {
                 // q̂：归一化 + 导出 GM（DataCopy 由 MTE2 单独计量）。
-                GDN_TIMER_SCOPE(&timer_, AscendTimer::PREP_Q_UPLOAD);
+                GDN_TIMER_SCOPE(&timer_, AscendTimer::S1A_QUPLOAD);
                 L2NormK128VF<InDtype>(ubQ[db], ubQHat[db], ubQRstd[db],
                                       static_cast<uint32_t>(nValid), kGdnL2NormEps);
                 SetFlag<HardEvent::V_MTE3>(kHeUb0);
@@ -402,13 +402,13 @@ public:
             SetFlag<HardEvent::MTE2_MTE3>(kHeUb0);
             WaitFlag<HardEvent::MTE2_MTE3>(kHeUb0);
             {
-                GDN_TIMER_SCOPE(&timer_, AscendTimer::PREP_WAIT_S4);
+                GDN_TIMER_SCOPE(&timer_, AscendTimer::S1_WAIT_S4);
                 WaitAicStage4Done(taskIdx);
             }
-            GDN_TIMER_SCOPE(&timer_, AscendTimer::PREP_K_UPLOAD);
+            GDN_TIMER_SCOPE(&timer_, AscendTimer::S1A_KUPLOAD);
             UploadBf16NdToL1(l1K, ubK[db], static_cast<uint32_t>(K));
             {
-                GDN_TIMER_SCOPE(&timer_, AscendTimer::PREP_NOTIFY_S1);
+                GDN_TIMER_SCOPE(&timer_, AscendTimer::S1_NOTIFY);
                 NotifyAicStage1Done(taskIdx);
             }
         }
@@ -416,7 +416,7 @@ public:
 
     __aicore__ inline void Stage1_GateAndBeta(const ChunkRange &chunk, int64_t hv, int64_t taskIdx)
     {
-        GDN_TIMER_SCOPE(&timer_, AscendTimer::PREP_GATE_BETA);
+        GDN_TIMER_SCOPE(&timer_, AscendTimer::S1B_GATE_BETA);
         const int32_t db = PingPongSlot(taskIdx);
         const int32_t nValid = static_cast<int32_t>(chunk.M);
         const int64_t offG = OffsetBHT(chunk.batch, hv, chunk.tokenStart, HV, T);
@@ -533,7 +533,7 @@ public:
         WaitFlag<HardEvent::M_MTE1>(bank);
         {
             // 只包 KKT 的 MMAD 下发，不含前面的 M_MTE1 等待与后面的 dump。
-            GDN_TIMER_SCOPE(&timer_, AscendTimer::PREP_KKT_MM);
+            GDN_TIMER_SCOPE(&timer_, AscendTimer::S2_KKT);
             MatmulToL0C<InDtype>(l1KHat[taskIdx], l1KHat[taskIdx], l0A[bank], l0B[bank], l0CTask[bank], bt, bt, kk,
                                  true, false, false, bank);
         }
@@ -553,7 +553,7 @@ public:
     // After kkt: L = kkt ⊙ G, pack leaves (must see -L), -L UB→L1, VCS on V.
     __aicore__ inline void Stage3_PrepareGate(int64_t taskIdx)
     {
-        GDN_TIMER_SCOPE(&timer_, AscendTimer::PREP_KKT_GATE);
+        GDN_TIMER_SCOPE(&timer_, AscendTimer::S3A_GATE);
         const int32_t db = PingPongSlot(taskIdx);
         if (useExp2 != 0) {
             GateLowerLVF<true>(ubGPrime[db], ubBetaEff[db], ubLFull[db]);
@@ -566,11 +566,11 @@ public:
     __aicore__ inline void Stage3_AivOne(int64_t hv, int64_t taskIdx)
     {
         {
-            GDN_TIMER_SCOPE(&timer_, AscendTimer::PREP_WAIT_CUBE);
+            GDN_TIMER_SCOPE(&timer_, AscendTimer::S3B_WAIT_KKT);
             WaitCubeKktDone(taskIdx);
         }
         // 纯计算窗口：Tik 放在 WaitCubeKktDone 之后，到 NotifyAicStage3Done 之前。
-        GDN_TIMER_SCOPE(&timer_, AscendTimer::PREP_KKT_EPI);
+        GDN_TIMER_SCOPE(&timer_, AscendTimer::S3B_EPI);
         const int32_t db = PingPongSlot(taskIdx);
         const int32_t kktDb = PingPongSlot(OwnerTaskIdx(hv, taskIdx));
         MulKktGateVF(ubKkt[kktDb], ubLFull[db]);
@@ -606,7 +606,7 @@ public:
             const uint8_t bank = static_cast<uint8_t>(t & 1);
             {
                 // 只包 I·I 预填充的 MMAD。
-                GDN_TIMER_SCOPE(&timer_, AscendTimer::PREP_SOLVE_PREFILL);
+                GDN_TIMER_SCOPE(&timer_, AscendTimer::S4_PREFILL);
                 MmadL0ABToL0C<float>(l0Af[0], l0Bf[0], l0CTask[t], bt, bt, bt, true, bank);
             }
             SetFlag<HardEvent::M_FIX>(bank);
@@ -623,7 +623,7 @@ public:
         WaitFlag<HardEvent::M_MTE1>(bank);
         {
             // Y = I + LeafLeft·(−L) 的 MMAD 下发窗口。
-            GDN_TIMER_SCOPE(&timer_, AscendTimer::PREP_SOLVE_ISSUE);
+            GDN_TIMER_SCOPE(&timer_, AscendTimer::S4_ISSUE);
             MatmulToL0C<float>(l1LeafLeft[taskIdx], l1NegL[taskIdx], l0AfP[bank], l0BfP[bank], l0CTask[taskIdx],
                                bt, bt, bt, false, true, true, bank);
         }
@@ -637,7 +637,7 @@ public:
         WaitFlag<HardEvent::M_FIX>(bank);
         {
             // L0C → workspace GM → L1 的 dump 窗口。
-            GDN_TIMER_SCOPE(&timer_, AscendTimer::PREP_SOLVE_DUMP);
+            GDN_TIMER_SCOPE(&timer_, AscendTimer::S4_DUMP);
             FixpipeL0cToGmNzCs(gmWsY[WsYOffset(taskIdx)], l0CTask[taskIdx], kChunk64);
             SetFlag<HardEvent::FIX_M>(bank);
             SetFlag<HardEvent::FIX_MTE2>(bank);
@@ -661,7 +661,7 @@ public:
         WaitFlag<HardEvent::M_MTE1>(bank);
         {
             // (I+L)⁻¹ 的两个 MMAD 下发窗口。
-            GDN_TIMER_SCOPE(&timer_, AscendTimer::PREP_SOLVE);
+            GDN_TIMER_SCOPE(&timer_, AscendTimer::S5_SOLVE);
             MatmulToL0C<float>(l1I, l1LeafLeft[taskIdx], l0Af[bank], l0Bf[bank], l0CTask[taskIdx], bt, bt, bt, true,
                                false, false, bank);
             SetFlag<HardEvent::FIX_M>(bank);
@@ -694,7 +694,7 @@ public:
         WaitFlag<HardEvent::M_FIX>(bank);
         {
             // L0C → GM/L1 的 A dump 窗口。
-            GDN_TIMER_SCOPE(&timer_, AscendTimer::PREP_SOLVE_DUMP);
+            GDN_TIMER_SCOPE(&timer_, AscendTimer::S5_DUMP);
             if (outputA != 0) {
                 FixpipeL0cToGmNd<InDtype>(gmA[offA], l0CTask[taskIdx], m, n, n);
                 SetFlag<HardEvent::FIX_MTE2>(bank);
@@ -742,7 +742,7 @@ public:
         }
         {
             // vb 段：v·β（GM→UB→L1），窗口到 UploadBf16NdToL1(l1Vb) 为止。
-            GDN_TIMER_SCOPE(&timer_, AscendTimer::PREP_WU_V);
+            GDN_TIMER_SCOPE(&timer_, AscendTimer::S6_VB);
             DataCopy(ubVnd, gmV[offV], nV);
             SetFlag<HardEvent::MTE2_V>(kHeUb0);
             WaitFlag<HardEvent::MTE2_V>(kHeUb0);
@@ -754,7 +754,7 @@ public:
 
         {
             // kbg 段：k̂·β·e^g（GM→UB→L1），窗口从 DataCopy(ubKnd) 起。
-            GDN_TIMER_SCOPE(&timer_, AscendTimer::PREP_WU_K);
+            GDN_TIMER_SCOPE(&timer_, AscendTimer::S6_KBG);
             DataCopy(ubKnd, gmKHat[offK], nK);
             SetFlag<HardEvent::MTE2_V>(kHeUb1);
             WaitFlag<HardEvent::MTE2_V>(kHeUb1);
@@ -794,7 +794,7 @@ public:
         WaitFlag<HardEvent::M_MTE1>(0);
         {
             // W = A·kbg：只包 MMAD 下发，不含前面的 M_MTE1 等待。
-            GDN_TIMER_SCOPE(&timer_, AscendTimer::PREP_W_ISSUE);
+            GDN_TIMER_SCOPE(&timer_, AscendTimer::S7_W);
             WuMatmulToL0C<InDtype>(l1A[taskIdx], l1Kbg[taskIdx], l0AS7[0], l0BS7[0], l0CS7[0], bt,
                                    static_cast<int32_t>(nK), bt, 0);
         }
@@ -809,7 +809,7 @@ public:
         WaitFlag<HardEvent::M_MTE1>(1);
         {
             // U = A·vb：只包 MMAD 下发。
-            GDN_TIMER_SCOPE(&timer_, AscendTimer::PREP_U_ISSUE);
+            GDN_TIMER_SCOPE(&timer_, AscendTimer::S7_U);
             WuMatmulToL0C<InDtype>(l1A[taskIdx], l1Vb[taskIdx], l0AS7[1], l0BS7[1], l0CS7[1], bt,
                                    static_cast<int32_t>(kGdnHeadDimK), bt, 1);
         }
@@ -827,8 +827,8 @@ public:
             SetFlag<HardEvent::FIX_M>(1);
             WaitFlag<HardEvent::M_MTE1>(1);
             {
-                // V=256 的 U 后半块，同为 PREP_U_ISSUE。
-                GDN_TIMER_SCOPE(&timer_, AscendTimer::PREP_U_ISSUE);
+                // V=256 的 U 后半块，同为 S7_U。
+                GDN_TIMER_SCOPE(&timer_, AscendTimer::S7_U);
                 WuMatmulToL0C<InDtype>(l1A[taskIdx], l1Vb1[taskIdx], l0AS7[1], l0BS7[1], l0CS7[1], bt,
                                        static_cast<int32_t>(kGdnHeadDimK), bt, 1);
             }
@@ -869,7 +869,7 @@ public:
 
     __aicore__ inline void DrainPackWuToGm(int64_t base, int64_t nThis)
     {
-        GDN_TIMER_SCOPE(&timer_, AscendTimer::PREP_WU_DRAIN);
+        GDN_TIMER_SCOPE(&timer_, AscendTimer::S7_DRAIN);
         for (int64_t t = subBlock; t < nThis; t += 2) {
             ChunkRange chunk;
             int64_t hv;
@@ -956,7 +956,7 @@ public:
                     continue;
                 }
                 {
-                    GDN_TIMER_SCOPE(&timer_, AscendTimer::PREP_WAIT_S1);
+                    GDN_TIMER_SCOPE(&timer_, AscendTimer::S2_WAIT_S1);
                     WaitAivStage1Done(t);
                 }
                 Stage2_AicOne(t, cur.nThis);
@@ -967,13 +967,13 @@ public:
             Stage4_PrefillI(cur.nThis);
             if (cur.nThis > 0) {
                 {
-                    GDN_TIMER_SCOPE(&timer_, AscendTimer::PREP_WAIT_S3);
+                    GDN_TIMER_SCOPE(&timer_, AscendTimer::S4_WAIT_S3);
                     WaitAivStage3Done(0);
                 }
                 Stage4_AccIssue(0);
                 for (int64_t t = 1; t < cur.nThis; ++t) {
                     {
-                        GDN_TIMER_SCOPE(&timer_, AscendTimer::PREP_WAIT_S3);
+                        GDN_TIMER_SCOPE(&timer_, AscendTimer::S4_WAIT_S3);
                         WaitAivStage3Done(t);
                     }
                     Stage4_AccIssue(t);
@@ -993,7 +993,7 @@ public:
             }
             for (int64_t t = 0; t < cur.nThis; ++t) {
                 {
-                    GDN_TIMER_SCOPE(&timer_, AscendTimer::PREP_WAIT_S6);
+                    GDN_TIMER_SCOPE(&timer_, AscendTimer::S7_WAIT_S6);
                     WaitAivStage6Done(t);
                 }
                 ChunkRange chunk;
@@ -1022,7 +1022,7 @@ public:
     __aicore__ inline void Process()
     {
         // 诊断锚点：同一代码点各核各取一次 cycle，不加任何会合。
-        // 真正的跨核基准用 PREP_NOTIFY_S1（AIV）与 PREP_WAIT_S1（AIC）这一对
+        // 真正的跨核基准用 S1_NOTIFY（AIV）与 S2_WAIT_S1（AIC）这一对
         // 已有握手来校准；全核 SyncAll 需要 SetScheduleMode(1)，会改变调度，不采用。
         if (timerKernelStartCycle_ != 0) {
             timer_.TikNoBarrier();

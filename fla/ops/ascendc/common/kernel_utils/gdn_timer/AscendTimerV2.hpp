@@ -20,55 +20,61 @@ enum FixedTiming : int32_t
 };
 
 // 动态计时项类型（循环内按 iter 重复）
+// 命名规则：名字前缀 = 所处阶段，看导出列名就知道是哪一步。
+//   Prepare: S0 / S1A(S1a) / S1B(S1b) / S1_PRE / S2 / S3A / S3B / S4 / S5 / S6 / S7
+//   FwdH:    H_C0 / H_C1 / H_V1 / H_C2 / H_V2
+//   FwdO:    O_V1 / O_C1A / O_C1B / O_V2 / O_C3 / O_V3
+//   等待：    <消费阶段>_WAIT_<生产阶段>，如 S2_WAIT_S1
 enum DynamicTimingType : int32_t
 {
     // ---- Prepare（S0-S7）----
-    PREP_RESIDENT_AUX,   // S0：常驻辅助（I_vcs/索引/清零）
-    PREP_PAD_TAIL,       // S1-pre：尾块补齐（仅 tail 命中）
-    PREP_K_UPLOAD,       // S1a：k̂ 归一化 + L1 上传（NotifyAicStage1Done 在窗口内）
-    PREP_Q_UPLOAD,       // S1a'：q̂ 归一化 + 导出（仅 useQkL2norm=1 时执行）
-    PREP_GATE_BETA,      // S1b：gate cumsum / β sigmoid / 导出
-    PREP_KKT_MM,         // S2：KKT = k̂·k̂ᵀ 的 MMAD（每 (chunk, HK) 一次）
-    PREP_KKT_GATE,       // S3a：G=exp*(g_i−g_j) 与 I_vcs 拷贝（可与 KKT 并行）
-    PREP_KKT_EPI,        // S3b：L=KKT⊙G 下三角 + 打包/上传（Tik 在 WaitCubeKktDone 之后）
-    PREP_SOLVE_PREFILL,  // S4-pre：I·I 预填充
-    PREP_SOLVE_ISSUE,    // S4-issue：Y=I+LeafLeft·(−L)
-    PREP_SOLVE_DUMP,     // S4-dump / S5-dump：L0C→L1/UB
-    PREP_SOLVE,          // S5：(I+L)⁻¹
-    PREP_WU_V,           // S6a：vb = v·β（GM→UB→L1）
-    PREP_WU_K,           // S6b：kbg = k̂·β·e^g（GM→UB→L1）
-    PREP_W_ISSUE,        // S7a：W = A·kbg 的 MMAD 下发
-    PREP_U_ISSUE,        // S7b：U = A·vb 的 MMAD 下发（V=256 时为两个半块）
-    PREP_WU_DRAIN,       // 下一包窗口内的 w/u 回写（UB→GM）
+    S0_AUX,              // S0：常驻辅助（I_vcs/索引/清零）
+    S1_PRE_TAIL,         // S1-pre：尾块补齐（仅 tail 命中）
+    S1A_KUPLOAD,         // S1a：k̂ 归一化 + L1 上传（NotifyAicStage1Done 在窗口内）
+    S1A_QUPLOAD,         // S1a'：q̂ 归一化 + 导出（仅 useQkL2norm=1 时执行）
+    S1B_GATE_BETA,       // S1b：gate cumsum / β sigmoid / 导出
+    S2_KKT,              // S2：KKT = k̂·k̂ᵀ 的 MMAD（每 (chunk, HK) 一次）
+    S3A_GATE,            // S3a：G=exp*(g_i−g_j) 与 I_vcs 拷贝（可与 KKT 并行）
+    S3B_EPI,             // S3b：L=KKT⊙G 下三角 + 打包/上传（Tik 在 WaitCubeKktDone 之后）
+    S4_PREFILL,          // S4-pre：I·I 预填充
+    S4_ISSUE,            // S4-issue：Y=I+LeafLeft·(−L)
+    S4_DUMP,             // S4-dump：Y 从 L0C→GM→L1
+    S5_SOLVE,            // S5：(I+L)⁻¹
+    S5_DUMP,             // S5-dump：A 从 L0C→GM/L1
+    S6_VB,               // S6a：vb = v·β（GM→UB→L1）
+    S6_KBG,              // S6b：kbg = k̂·β·e^g（GM→UB→L1）
+    S7_W,                // S7a：W = A·kbg 的 MMAD 下发
+    S7_U,                // S7b：U = A·vb 的 MMAD 下发（V=256 时为两个半块）
+    S7_DRAIN,            // 下一包窗口内的 w/u 回写（UB→GM）
 
     // ---- FwdH ----
-    FWH_WH_MM,           // C1：P = w·S 的 MMAD（Tik 在 L0/W/H 等待之后）
-    FWH_VNEW,            // V1：v_new epilogue
-    FWH_KV_MM,           // C2：h_work = kᵀ·v_new 的 MMAD
-    FWH_STATE,           // V2：状态更新 epilogue
-    FWH_PREFETCH,        // W/K lookahead 的 MTE2 搬入
+    H_C0_PREFETCH,       // C0：W/K/H 的 GM→L1 预取
+    H_C1_WH,             // C1：P = w·S 的 MMAD（Tik 在 L0/W/H 等待之后）
+    H_V1_VNEW,           // V1：v_new epilogue
+    H_C2_KV,             // C2：h_work = kᵀ·v_new 的 MMAD
+    H_V2_STATE,          // V2：状态更新 epilogue
 
     // ---- FwdO ----
-    FWO_GATE,            // V1：exp*(g) 因子（gateA/gateO）
-    FWO_QK,              // C1a：attn = q·kᵀ
-    FWO_QH,              // C1b：O_s = q·h
-    FWO_MASK,            // V2：tril + 衰减 → A′；O_s′
-    FWO_ATTN_V,          // C3：O_l = A′·v_new
-    FWO_OUTPUT,          // V3：o = scale·(O_s′+O_l)
+    O_V1_GATE,           // V1：exp*(g) 因子（gateA/gateO）
+    O_C1A_QK,            // C1a：attn = q·kᵀ
+    O_C1B_QH,            // C1b：O_s = q·h
+    O_V2_MASK,           // V2：tril + 衰减 → A′；O_s′
+    O_C3_ATTNV,          // C3：O_l = A′·v_new
+    O_V3_OUTPUT,         // V3：o = scale·(O_s′+O_l)
 
     // ---- 诊断：Init 拆分 + 等待窗口（不改变上面任何既有窗口的定义）----
     // Init 拆分用于回答"AIV Init 比 AIC 多 1.5us 花在哪"。
-    PREP_INIT_MAP,       // Init：InitOnChip 整体
-    PREP_INIT_WS,        // Init：workspace 绑定
-    PREP_INIT_GM,        // Init：GM SetGlobalBuffer 批次
+    INIT_MAP,            // Init：InitOnChip 整体
+    INIT_WS,             // Init：workspace 绑定
+    INIT_GM,             // Init：GM SetGlobalBuffer 批次
     // 等待窗口：只包已有 CrossCoreWaitFlag，不新增任何同步。
     // 导出时用于断言 wait_end ≈ producer notify。
-    PREP_WAIT_S1,        // AIC：WaitAivStage1Done（producer = PREP_NOTIFY_S1）
-    PREP_WAIT_S3,        // AIC：WaitAivStage3Done（producer = PREP_KKT_EPI）
-    PREP_WAIT_S6,        // AIC：WaitAivStage6Done（producer = PREP_WU_K）
-    PREP_WAIT_S4,        // AIV：WaitAicStage4Done（producer = PREP_SOLVE_DUMP）
-    PREP_WAIT_CUBE,      // AIV：WaitCubeKktDone（producer = PREP_KKT_MM）
-    PREP_NOTIFY_S1,      // AIV：NotifyAicStage1Done 的瞬时点，跨核时间基准的校准锚
+    S2_WAIT_S1,          // AIC：WaitAivStage1Done（producer = S1_NOTIFY）
+    S4_WAIT_S3,          // AIC：WaitAivStage3Done（producer = S3B_EPI）
+    S7_WAIT_S6,          // AIC：WaitAivStage6Done（producer = S6_KBG）
+    S1_WAIT_S4,          // AIV：WaitAicStage4Done（producer = S4_DUMP）
+    S3B_WAIT_KKT,        // AIV：WaitCubeKktDone（producer = S2_KKT）
+    S1_NOTIFY,           // AIV：NotifyAicStage1Done 的瞬时点，跨核时间基准的校准锚
 
     // ---- 搬运等待（诊断）----
     // MTE2：阻塞在"输入数据从 GM 到达"上（消费侧 WaitFlag<MTE2_V>）

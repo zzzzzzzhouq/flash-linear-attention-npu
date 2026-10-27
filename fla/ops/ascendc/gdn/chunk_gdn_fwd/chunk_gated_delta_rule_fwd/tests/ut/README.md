@@ -25,7 +25,7 @@
 每个切片内部：`[0, N_TIMING_COUNTER)` 是逐核 `[start_cycle, end_cycle]` 对，
 `[N_TIMING_COUNTER, SLICE_WORDS)` 是逐核各动态项的实际迭代次数。
 固定项是 `KERNEL_TIMING_IDX` / `MAIN_INIT` / `MAIN_BODY`；动态项见
-`AscendTimer::DynamicTimingType`（`PREP_*` / `FWH_*` / `FWO_*`）。
+`AscendTimer::DynamicTimingType`（Prepare 用 `S*` / FwdH 用 `H_*` / FwdO 用 `O_*`）。
 
 ## 2. 采集
 
@@ -73,7 +73,7 @@ python trace_parser.py --timer-dir profiling_results/gdn_fwd_timer \
 
 ## 4. 读数约定
 
-- 所有 `PREP_*` / `FWH_*` / `FWO_*` 都是**下发/issue 窗口**，不是完成时延；
+- 所有 `S*` / `H_*` / `O_*` 都是**下发/issue 窗口**，不是完成时延；
   异步 MMAD 的实际完成要由后续功能性等待或产物消费点体现。
 - 窗口之间可以重叠，**不能相加**；总时长只看 `KERNEL_TIMING_IDX`。
 - 每核每动态项最多记录 `MAX_DYNAMIC_ITER`（当前 64）次，超出部分截断，
