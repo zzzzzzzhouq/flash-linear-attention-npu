@@ -360,15 +360,21 @@ public:
             WaitFlag<HardEvent::MTE2_V>(kHeUb0);
         }
         if (useQkL2norm != 0) {
-            L2NormK128VF<InDtype>(ubK[db], ubKHat[db], ubKRstd[db], static_cast<uint32_t>(nValid), kGdnL2NormEps);
-            SetFlag<HardEvent::V_MTE3>(kHeUb0);
-            WaitFlag<HardEvent::V_MTE3>(kHeUb0);
             {
-                GDN_TIMER_SCOPE(&timer_, AscendTimer::PREP_WAIT_S4);
-                WaitAicStage4Done(taskIdx);
+                // k̂ 的完整一段：归一化（L2Norm）+ 等 L1 槽位 + 上传。
+                // DataCopy 由 MTE2 单独计量，不在本窗口内；PREP_WAIT_S4 是嵌套窗口，
+                // 纯计算 = K_UPLOAD - WAIT_S4。
+                GDN_TIMER_SCOPE(&timer_, AscendTimer::PREP_K_UPLOAD);
+                L2NormK128VF<InDtype>(ubK[db], ubKHat[db], ubKRstd[db], static_cast<uint32_t>(nValid),
+                                      kGdnL2NormEps);
+                SetFlag<HardEvent::V_MTE3>(kHeUb0);
+                WaitFlag<HardEvent::V_MTE3>(kHeUb0);
+                {
+                    GDN_TIMER_SCOPE(&timer_, AscendTimer::PREP_WAIT_S4);
+                    WaitAicStage4Done(taskIdx);
+                }
+                UploadBf16NdToL1(l1K, ubKHat[db], static_cast<uint32_t>(K));
             }
-            GDN_TIMER_SCOPE(&timer_, AscendTimer::PREP_K_UPLOAD);
-            UploadBf16NdToL1(l1K, ubKHat[db], static_cast<uint32_t>(K));
             {
                 GDN_TIMER_SCOPE(&timer_, AscendTimer::PREP_NOTIFY_S1);
                 NotifyAicStage1Done(taskIdx);
