@@ -13,7 +13,7 @@
 5. **FwdO 局内最大命名 AIV 阶段是 Mask，但整体优先级靠后。** 8960 下 28 个核组活跃，FwdO 表观跨度 28.544 µs，占三阶段校正总和的 11.5%；先做大范围 FwdO 重构，整体收益空间有限。
 6. **下一步用修复后的 Guard 重新采集，再做优化性能验收。** 当前对齐源码已在溢出后通过现有 Tik/Tok Guard 丢弃后续采样，保留每 Stage 首次记录的 0～63 槽；4 处 `PIPE_S` 不需要再改。重新采集后，用 `msprof op_summary Task Duration` 与 `--no-timer` A/B 确认真实性能。
 
-![GDN 三阶段采集跨度构成](F:/WorkSpace/Code/GDN/flash-linear-attention-npu/assets/gdn_profiling/gdn_overview.svg)
+![GDN 三阶段采集跨度构成](assets/gdn_profiling/gdn_overview.svg)
 
 ## 2. Case、数据和分析口径
 
@@ -61,7 +61,7 @@ S7  W = A @ kbg；U = A @ vb                  AIC
 
 代码已实现 KKT 与 gate/beta 重叠、S4 prefill 藏在 S3 下、S4 issue(t) 与 dump(t−1) 重叠，这些不是待补的新优化。[chunk_gated_delta_rule_fwd_prepare](kimi-cite://text?path=F%3A/WorkSpace/Code/GDN/flash-linear-attention-npu/.kimi/feat-src/fla/ops/ascendc/gdn/chunk_gdn_fwd/chunk_gated_delta_rule_fwd_prepare/op_kernel/arch35/chunk_gated_delta_rule_fwd_prepare.h&text=Do%20not%20gate%20Stage1%20on%20Stage7 "citation")
 
-![Prepare CV 依赖与跨 pack 重叠](F:/WorkSpace/Code/GDN/flash-linear-attention-npu/assets/gdn_profiling/gdn_prepare_pipeline.svg)
+![Prepare CV 依赖与跨 pack 重叠](assets/gdn_profiling/gdn_prepare_pipeline.svg)
 
 ### 3.2 FwdH：沿 chunk 严格递推 state
 
@@ -209,7 +209,7 @@ MAX_DYNAMIC_ITER = 64
 
 前 63 槽在当前带 timer 条件下得到的单 chunk 起点中位节奏约 2.09 µs，只能作为**前缀样本**，不能外推为 139 次递推的全程均值，也不能证明旧报告中的“全程稳定递推”。
 
-![FwdH 递推约束与 Timer Guard 修法](F:/WorkSpace/Code/GDN/flash-linear-attention-npu/assets/gdn_profiling/gdn_fwdh_timer_guard.svg)
+![FwdH 递推约束与 Timer Guard 修法](assets/gdn_profiling/gdn_fwdh_timer_guard.svg)
 
 ### 6.3 正确修法与验收
 
