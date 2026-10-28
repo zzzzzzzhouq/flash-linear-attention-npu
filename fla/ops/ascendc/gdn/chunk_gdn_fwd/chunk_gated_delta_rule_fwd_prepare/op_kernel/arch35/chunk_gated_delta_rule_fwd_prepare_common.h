@@ -217,9 +217,11 @@ __aicore__ inline void NotifyAicStage1Done(int64_t taskIdx)
     AscendC::CrossCoreSetFlag<0x4, PIPE_MTE3>(static_cast<uint16_t>(taskIdx));
 }
 
+// 等待不指定 pipe：默认 PIPE_ALL 会把标量也挡住，计时点才落在真实释放时刻。
+// 指定 PIPE_MTE1 时只挡 MTE1 队列，标量继续下发，Tik/Tok 会提前 5~6us。
 __aicore__ inline void WaitAivStage1Done(int64_t taskIdx)
 {
-    AscendC::CrossCoreWaitFlag<0x4, PIPE_MTE1>(CubeWaitFlagForTask(taskIdx));
+    AscendC::CrossCoreWaitFlag<0x4>(CubeWaitFlagForTask(taskIdx));
 }
 
 // Same ids as Stage1 (0,1,2,3). AIC already Waited this id for k' ready,
@@ -232,7 +234,7 @@ __aicore__ inline void NotifyAivKktDone(int64_t taskIdx)
 
 __aicore__ inline void WaitCubeKktDone(int64_t taskIdx)
 {
-    AscendC::CrossCoreWaitFlag<0x4, PIPE_V>(static_cast<uint16_t>(taskIdx));
+    AscendC::CrossCoreWaitFlag<0x4>(static_cast<uint16_t>(taskIdx));
 }
 
 // Stage3 L1 ready → Stage4. AIV Sets raw taskIdx+4; AIC Waits +16 on AIV1.
@@ -243,7 +245,7 @@ __aicore__ inline void NotifyAicStage3Done(int64_t taskIdx)
 
 __aicore__ inline void WaitAivStage3Done(int64_t taskIdx)
 {
-    AscendC::CrossCoreWaitFlag<0x4, PIPE_MTE1>(CubeWaitFlagForTask(taskIdx + kFlagS3DoneBase));
+    AscendC::CrossCoreWaitFlag<0x4>(CubeWaitFlagForTask(taskIdx + kFlagS3DoneBase));
 }
 
 // Stage4 Y on L1 / NegL free. Pack N+1 Stage1 waits this before k' L1 write.
@@ -267,7 +269,7 @@ __aicore__ inline void NotifyAicStage6Done(int64_t taskIdx)
 
 __aicore__ inline void WaitAivStage6Done(int64_t taskIdx)
 {
-    AscendC::CrossCoreWaitFlag<0x4, PIPE_MTE1>(CubeWaitFlagForTask(taskIdx + kFlagS6DoneBase));
+    AscendC::CrossCoreWaitFlag<0x4>(CubeWaitFlagForTask(taskIdx + kFlagS6DoneBase));
 }
 
 __aicore__ inline void NotifyAivStage7Done()

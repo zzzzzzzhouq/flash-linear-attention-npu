@@ -73,6 +73,11 @@ def main():
                         help="确认 AIC/AIV 共同时钟后再加，用于 trace")
     parser.add_argument("--sequential", action="store_true",
                         help="合并 trace 时把 prepare/fwd_h/fwd_o 按 KERNEL_TIMING 跨度顺序排在一条时间轴上")
+    parser.add_argument("--align-anchor", dest="align_anchor", action="store_true", default=True,
+                        help="按每核 ANCHOR（body 入口同一代码点）对齐各核时间轴，默认开启；"
+                             "跨核启动散布约 1us，不对齐会让 C/V 轨整体错开")
+    parser.add_argument("--no-align-anchor", dest="align_anchor", action="store_false",
+                        help="保留全局 min-start 作为原点（不做每核对齐）")
     args = parser.parse_args()
 
     import torch  # noqa: F401  （必须先 import torch 再 import torch_npu）
@@ -158,7 +163,8 @@ def main():
         if args.cycles_per_us is not None and args.shared_clock:
             base_cycle = trace_parser.find_min_start(parsed_path)
             events = trace_parser.generate_trace_json(parsed_path, args.rank, base_cycle,
-                                                      args.cycles_per_us, True)
+                                                      args.cycles_per_us, True,
+                                                      align_anchor=args.align_anchor)
             trace_path = out_dir / f"rank_{args.rank}_{slice_name}.json"
             trace_path.write_text(
                 json.dumps({"traceEvents": events, "displayTimeUnit": "us"},
