@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="850" viewBox="0 0 1400 850">
+<defs><marker id="a" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto"><path d="M0,0 L0,6 L9,3 z" fill="#667085"/></marker></defs>
+<rect width="1400" height="850" fill="white"/>
+<text x="55" y="58" font-family="Microsoft YaHei,Noto Sans CJK SC,sans-serif" font-size="30" font-weight="700" fill="#172B4D">FwdH：真实递推约束 vs. Timer 采样伪影</text>
+<text x="55" y="92" font-family="Microsoft YaHei,Noto Sans CJK SC,sans-serif" font-size="16" fill="#667085">代码结构可以确认；长 trace 的跨 Stage 形状和绝对时长必须等采样修复后再判定</text>
+<g font-family="Microsoft YaHei,Noto Sans CJK SC,sans-serif" font-size="17" fill="#172B4D">
+<rect x="70" y="135" width="120" height="48" rx="8" fill="#6C8EBF"/><text x="130" y="166" text-anchor="middle" fill="white" font-weight="700">Head 0</text><path d="M190 159 L235 159" stroke="#667085" stroke-width="2" marker-end="url(#a)"/><text x="250" y="166">C1 → V1 → C2 → V2 → H_READY → 下一 chunk</text>
+<rect x="70" y="205" width="120" height="48" rx="8" fill="#6C8EBF"/><text x="130" y="236" text-anchor="middle" fill="white" font-weight="700">Head 1</text><path d="M190 229 L235 229" stroke="#667085" stroke-width="2" marker-end="url(#a)"/><text x="250" y="236">C1 → V1 → C2 → V2 → H_READY → 下一 chunk</text>
+<rect x="70" y="275" width="120" height="48" rx="8" fill="#6C8EBF"/><text x="130" y="306" text-anchor="middle" fill="white" font-weight="700">Head 2</text><path d="M190 299 L235 299" stroke="#667085" stroke-width="2" marker-end="url(#a)"/><text x="250" y="306">C1 → V1 → C2 → V2 → H_READY → 下一 chunk</text>
+<rect x="70" y="345" width="120" height="48" rx="8" fill="#6C8EBF"/><text x="130" y="376" text-anchor="middle" fill="white" font-weight="700">Head 3</text><path d="M190 369 L235 369" stroke="#667085" stroke-width="2" marker-end="url(#a)"/><text x="250" y="376">C1 → V1 → C2 → V2 → H_READY → 下一 chunk</text>
+</g>
+<rect x="980" y="175" width="340" height="125" rx="14" fill="#54A24B"/><text x="1150" y="218" text-anchor="middle" font-family="Microsoft YaHei,sans-serif" font-size="20" font-weight="700" fill="white">结构优化候选</text><text x="1150" y="254" text-anchor="middle" font-family="Microsoft YaHei,sans-serif" font-size="19" font-weight="700" fill="white">V 逻辑列切分：2×64 → 8 核组</text>
+<text x="70" y="440" font-family="Microsoft YaHei,Noto Sans CJK SC,sans-serif" font-size="18" font-weight="700" fill="#172B4D">B=1、HV=4 → 只有 4 个核组；同一 head 的 139 次递推不能按 chunk 并行。</text>
+<line x1="55" y1="480" x2="1345" y2="480" stroke="#D0D5DD" stroke-width="2"/>
+<text x="70" y="530" font-family="Microsoft YaHei,sans-serif" font-size="21" font-weight="700" fill="#D92D20">旧行为：溢出后持续写槽 63</text>
+<g font-family="Microsoft YaHei,sans-serif" font-size="17" font-weight="700" text-anchor="middle"><rect x="70" y="565" width="145" height="62" rx="8" fill="#6C8EBF"/><text x="142" y="604" fill="white">0…62</text><rect x="235" y="565" width="90" height="62" rx="8" fill="#D92D20"/><text x="280" y="604" fill="white">63</text></g>
+<path d="M420 550 C360 535 305 540 285 560" fill="none" stroke="#D92D20" stroke-width="3" marker-end="url(#a)"/><text x="430" y="550" font-family="Microsoft YaHei,sans-serif" font-size="16" fill="#D92D20">后续事件反复覆盖</text>
+<text x="70" y="680" font-family="Microsoft YaHei,Noto Sans CJK SC,sans-serif" font-size="17" font-weight="700" fill="#D92D20">不同 Stage 的末尾槽来自不同轮次 → 假倒挂／假长链</text>
+<text x="760" y="530" font-family="Microsoft YaHei,sans-serif" font-size="21" font-weight="700" fill="#039855">正确修法：Guard 丢弃溢出采样</text>
+<g font-family="Microsoft YaHei,sans-serif" font-size="17" font-weight="700" text-anchor="middle"><rect x="760" y="565" width="145" height="62" rx="8" fill="#6C8EBF"/><text x="832" y="604" fill="white">0…62</text><rect x="925" y="565" width="90" height="62" rx="8" fill="#6C8EBF"/><text x="970" y="604" fill="white">63</text><rect x="1035" y="565" width="105" height="62" rx="8" fill="#98A2B3"/><text x="1087" y="604" fill="white">≥64</text></g>
+<text x="1160" y="602" font-family="Microsoft YaHei,sans-serif" font-size="16" fill="#039855">不再 Tik/Tok</text>
+<text x="760" y="680" font-family="Microsoft YaHei,Noto Sans CJK SC,sans-serif" font-size="17" font-weight="700" fill="#039855">保留每 Stage 首次 0～63；后续采样直接丢弃</text>
+<text x="70" y="755" font-family="Microsoft YaHei,Noto Sans CJK SC,sans-serif" font-size="18" font-weight="700" fill="#172B4D">4 处 PIPE_S 保持现状，不再为本问题修改。</text>
+<text x="70" y="800" font-family="Microsoft YaHei,Noto Sans CJK SC,sans-serif" font-size="16" fill="#667085">重新采集后：先查槽 63 不再跳到 kernel 末尾，再做跨 Stage 依赖和全时段性能分析。</text>
+</svg>

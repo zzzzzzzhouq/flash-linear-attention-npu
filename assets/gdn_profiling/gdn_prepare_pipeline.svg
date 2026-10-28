@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="760" viewBox="0 0 1400 760">
+<defs><marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto"><path d="M0,0 L0,6 L9,3 z" fill="#667085"/></marker><marker id="arrowBlue" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto"><path d="M0,0 L0,6 L9,3 z" fill="#4C78A8"/></marker></defs>
+<rect width="1400" height="760" fill="white"/>
+<text x="55" y="58" font-family="Microsoft YaHei,Noto Sans CJK SC,sans-serif" font-size="30" font-weight="700" fill="#172B4D">Prepare：CV 依赖与跨 pack 重叠</text>
+<text x="55" y="92" font-family="Microsoft YaHei,Noto Sans CJK SC,sans-serif" font-size="16" fill="#667085">依赖示意，非时间比例；S3 与首次跨 pack 交接是当前重点</text>
+<text x="55" y="235" font-family="Microsoft YaHei,sans-serif" font-size="22" font-weight="700" fill="#172B4D">AIV</text><text x="55" y="445" font-family="Microsoft YaHei,sans-serif" font-size="22" font-weight="700" fill="#172B4D">AIC</text>
+<g font-family="Microsoft YaHei,Noto Sans CJK SC,sans-serif" font-size="18" font-weight="700" fill="white" text-anchor="middle">
+<rect x="130" y="165" width="175" height="90" rx="12" fill="#4C78A8"/><text x="217" y="202">S1</text><text x="217" y="230">k 上传 / notify</text>
+<rect x="355" y="375" width="165" height="90" rx="12" fill="#F58518"/><text x="437" y="412">S2</text><text x="437" y="440">KKT</text>
+<rect x="570" y="165" width="210" height="90" rx="12" fill="#E76F51"/><text x="675" y="202">S3</text><text x="675" y="230">L / 叶块 / L1</text>
+<rect x="830" y="375" width="155" height="90" rx="12" fill="#F58518"/><text x="907" y="412">S4</text><text x="907" y="440">Y</text>
+<rect x="1020" y="375" width="155" height="90" rx="12" fill="#F58518"/><text x="1097" y="412">S5</text><text x="1097" y="440">A</text>
+<rect x="830" y="165" width="180" height="90" rx="12" fill="#4C78A8"/><text x="920" y="202">S6</text><text x="920" y="230">vb / kbg</text>
+<rect x="1200" y="375" width="150" height="90" rx="12" fill="#F58518"/><text x="1275" y="412">S7</text><text x="1275" y="440">W / U</text>
+<rect x="1175" y="165" width="175" height="90" rx="12" fill="#6C8EBF"/><text x="1262" y="202">下一 pack S1</text><text x="1262" y="230">提前进入</text>
+</g>
+<g fill="none" stroke="#667085" stroke-width="3" marker-end="url(#arrow)"><path d="M305 210 L350 350"/><path d="M520 375 L565 255"/><path d="M780 210 L825 350"/><path d="M985 420 L1010 420"/><path d="M1175 420 L1190 420"/><path d="M780 210 L820 210"/><path d="M1010 210 L1225 350"/></g>
+<path d="M1175 210 C1080 285 1040 330 1010 370" fill="none" stroke="#4C78A8" stroke-width="3" stroke-dasharray="8 5" marker-end="url(#arrowBlue)"/>
+<text x="330" y="305" text-anchor="middle" font-family="Microsoft YaHei,sans-serif" font-size="16" font-weight="700" fill="#D92D20">首次交接：notify→KKT 6.460 µs</text>
+<text x="675" y="135" text-anchor="middle" font-family="Microsoft YaHei,sans-serif" font-size="16" font-weight="700" fill="#B54708">稳态 S3 EPI/core ≈ 3.8 µs／pack</text>
+<text x="915" y="305" text-anchor="middle" font-family="Microsoft YaHei,sans-serif" font-size="15" fill="#667085">S6 与 S4/S5 重叠</text>
+<text x="1120" y="135" text-anchor="middle" font-family="Microsoft YaHei,sans-serif" font-size="16" font-weight="700" fill="#476A9B">下一包 S1 覆盖上一包 S5/S7</text>
+<text x="90" y="570" font-family="Microsoft YaHei,Noto Sans CJK SC,sans-serif" font-size="17" fill="#172B4D">正确读法：窗口跨 AIC／AIV 且互相重叠，不能相加；KKT MMAD 窗口小，不等于 KKT 供给没有延迟。</text>
+<text x="90" y="620" font-family="Microsoft YaHei,Noto Sans CJK SC,sans-serif" font-size="18" font-weight="700" fill="#172B4D">优化顺序：Stage3 数据链 → KKT dump／notify 与 AIC 后段 → S5/S7 重复搬运。</text>
+<text x="90" y="675" font-family="Microsoft YaHei,Noto Sans CJK SC,sans-serif" font-size="15" fill="#667085">8960：28 核组，每核组 5 packs；512：8 核组，每核组 1 pack。</text>
+</svg>
