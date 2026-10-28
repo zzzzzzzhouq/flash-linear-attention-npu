@@ -370,7 +370,7 @@ private:
                 args_.tiling, unit.sequence.sequence, head.hv, 0, 0);
             gmH.SetGlobalBuffer(reinterpret_cast<__gm__ bfloat16_t *>(args_.initialState) + stateOffset);
         } else {
-            AscendC::CrossCoreWaitFlag<0x4, PIPE_MTE2>(
+            AscendC::CrossCoreWaitFlag<0x4, PIPE_S>(
                 FwdHAicPeerFlag(FWD_H_H_READY_FLAG, head.localSlot, head.aiv));
             gmH.SetGlobalBuffer(reinterpret_cast<__gm__ bfloat16_t *>(args_.h) + HOffset(unit, chunk, head));
         }
@@ -544,7 +544,7 @@ private:
         const FwdHChunkSpan &chunk, const FwdHHeadBinding &head, uint32_t hSlot)
     {
         // Stage2 搬运：等待本 head 的 Stage1 MTE3 后，从 GM ND 搬入当前 H/right L1 槽。
-        AscendC::CrossCoreWaitFlag<0x4, PIPE_MTE2>(
+        AscendC::CrossCoreWaitFlag<0x4, PIPE_S>(
             FwdHAicPeerFlag(FWD_H_RIGHT_READY_FLAG, head.localSlot, head.aiv));
         AscendC::WaitFlag<AscendC::HardEvent::MTE1_MTE2>(HRightReadyEvent(hSlot));
         if (chunk.validTokens < FWD_H_CHUNK) {

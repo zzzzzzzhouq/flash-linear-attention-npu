@@ -688,7 +688,7 @@ private:
         if constexpr (HAS_P) {
             // Gate decay is independent of P. Queue it before the cross-core P wait so
             // scalar Exp can overlap the producer's Stage0 tail.
-            AscendC::CrossCoreWaitFlag<0x4, PIPE_V>(
+            AscendC::CrossCoreWaitFlag<0x4, PIPE_S>(
                 FwdHAivLocalFlag(FWD_H_P_READY_FLAG, head.localSlot));
         }
         // H_V1_VNEW：V_new = cast_BF16(fp32(U) − fp32(P))，跨两个编译分支共用一个窗口。
@@ -904,7 +904,7 @@ private:
                       "resident state is only valid for FP32 state");
         const uint32_t slot = DataSlot(head);
         const uint32_t stateSlot = head.localSlot;
-        AscendC::CrossCoreWaitFlag<0x4, PIPE_V>(
+        AscendC::CrossCoreWaitFlag<0x4, PIPE_S>(
             FwdHAivLocalFlag(FWD_H_D_READY_FLAG, head.localSlot));
         if constexpr (WAIT_MTE2) {
             // 只有本次 Stage3 确实从 GM 搬入 state/gk 时才等待 MTE2；BF16 g-only

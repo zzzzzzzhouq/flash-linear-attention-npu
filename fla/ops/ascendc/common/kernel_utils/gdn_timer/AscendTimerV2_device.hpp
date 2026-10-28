@@ -429,10 +429,9 @@ public:
     {
         const int32_t t = static_cast<int32_t>(type);
         if (t < 0 || t >= AscendTimer::DYNAMIC_TYPE_COUNT) { return 0; }
-        int32_t iter = next_iter_[t];
-        if (iter >= AscendTimer::MAX_DYNAMIC_ITER) { iter = AscendTimer::MAX_DYNAMIC_ITER - 1; }
-        else { next_iter_[t] = iter + 1; }
-        return iter;
+        // 溢出时返回 MAX_DYNAMIC_ITER，让 Tik/Tok 的现有边界检查丢弃后续采样；
+        // 不能复用最后一个槽，否则不同 stage 会混入不同实际迭代的事件。
+        return next_iter_[t]++;
     }
 
     // kernel 收尾调用一次：把每个 stage 的实际调用次数写入计数区。
