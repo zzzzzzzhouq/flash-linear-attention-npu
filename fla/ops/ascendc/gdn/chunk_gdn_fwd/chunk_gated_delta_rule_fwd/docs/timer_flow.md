@@ -115,8 +115,9 @@ aclnn ChunkGatedDeltaRuleFwd
 - 窗口可重叠，**不可相加**；总时间只看 `KERNEL_TIMING_IDX`。
 - 每核每阶段最多 `MAX_DYNAMIC_ITER = 64` 次，超出截断（`PublishCounts()` → `setDynamicActualIter` 记录实际次数）。
 - 跨核绝对时间需先核实 AIC/AIV 共同时钟；未核实时只比较本核内的相对顺序与时长。
-- 跨核等待必须**不带 pipe 参数**（`CrossCoreWaitFlag<0x4>(id)`）。写 `PIPE_MTE1` / `PIPE_V`
-  时只挡对应管道、标量继续下发，Tik/Tok 会整体前移数 us，图上表现为 C/V 两轨错位。
+- 跨核等待必须挂在**标量 pipe**（`CrossCoreWaitFlag<0x4, PIPE_S>(id)`）。写 `PIPE_MTE1` / `PIPE_V`
+  时只挡对应管道、标量继续下发，Tik/Tok 会整体前移数 us，图上表现为 C/V 两轨错位；
+  写默认 `PIPE_ALL` 则会把每条 pipe 都排空，标量时间对了但整体慢 ~23%。
 - 各核启动有 ~1us 散布，跨核叠加前用每核 `ANCHOR`（body 入口同一代码点）对齐；
   `profile_gdn.py` 默认按 ANCHOR 对齐，`--no-align-anchor` 可退回全局 min-start。
 
@@ -150,9 +151,11 @@ aclnn ChunkGatedDeltaRuleFwd
    之后所有 `TikNoBarrier` / `TokNoBarrier` / scope 构造都走 `t_addr == nullptr` 的
    早退分支（只剩 `AscendTimerDevice` 成员构造本身的开销）；FwdH AIC 侧在
    "本核无 Cube 工作"时完全不写计时缓冲（该核视为未启用）。数值路径不改一行。
-9. **prepare 的跨核等待改为默认 pipe**：`WaitAivStage1Done` / `WaitAivStage3Done` /
-   `WaitAivStage6Done` / `WaitCubeKktDone` 原来写 `PIPE_MTE1` / `PIPE_V`，标量不等，
-   `S2_WAIT_S1` 只量到 0.5us 而其真实等待在 5.9us 之后，AIC 轨整体前移。
-   现改为 `CrossCoreWaitFlag<0x4>(id)`（默认 `PIPE_ALL`，含标量），
-   与 `fused_sparse_attention_overlap` 的做法一致。
-   **代价**：标量不再抢跑，理论上可能轻微变慢；跑完对比 `KERNEL_TIMING_IDX` 确认。
+9. **prepare 的跨核等待改为 `PIPE_S`**：`WaitAivStage1Done` / `WaitAivStage3Done` /
+   `WaitAivStage6Done` / `WaitCubeKktDone` / `WaitAicStage4Done` / `WaitAicStage7Done`
+   原来写 `PIPE_MTE1` / `PIPE_V`（前四个）或默认 `PIPE_ALL`（后两个）。前者标量不等，
+   `S2_WAIT_S1` 只量到 0.48us 而真实等待在 5.9us 之后，AIC 轨整体前移；
+   后者虽然时间对，但每条 pipe 都要排空，实测 prepare 慢 23%。
+   现统一为 `CrossCoreWaitFlag<0x4, PIPE_S>(id)`：只挂标量队列，
+   计时点=真实释放时刻，且不排空 MTE1/MTE2/FIX。
+   **仅用于分析构建**，timer 不进正式代码。
