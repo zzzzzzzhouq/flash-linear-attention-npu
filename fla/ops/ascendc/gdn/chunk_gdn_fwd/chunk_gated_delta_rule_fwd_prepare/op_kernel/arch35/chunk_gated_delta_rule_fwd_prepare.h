@@ -353,8 +353,8 @@ public:
             WaitAicStage4Done(taskIdx);
             return;
         }
-        // k̂ 归一化 + L1 上传 + q̂ 导出。S4 槽位等待（WaitAicStage4Done）不纳入窗口：
-        // 该等待之前的 DataCopy/L2Norm 不计时，窗口从等待之后（Upload+Notify）开始。
+        // k̂ 归一化 + L1 上传 + q̂ 导出。S4 槽位复用等待保留为功能同步，
+        // 不再单独导出 wait 事件。
         const int64_t hk = hv / HRatio;
         const int32_t db = PingPongSlot(taskIdx);
         const int32_t nElem = static_cast<int32_t>(chunk.M * K);
@@ -365,45 +365,25 @@ public:
 
         DataCopy(ubK[db], gmK[offQk], nElem);
         SetFlag<HardEvent::MTE2_V>(kHeUb0);
-        {
-            const int32_t iterMte2 = timer_.NextIter(AscendTimer::MTE2);
-            timer_.TikNoBarrier(AscendTimer::MTE2, iterMte2);
-            WaitFlag<HardEvent::MTE2_V>(kHeUb0);
-            timer_.TokNoBarrier<Overwrite>(AscendTimer::MTE2, iterMte2);
-        }
+        WaitFlag<HardEvent::MTE2_V>(kHeUb0);
         if (useQkL2norm != 0) {
-            // k̂ 的完整一段：归一化 + 等 L1 槽位 + 上传。
-            // DataCopy 由 MTE2 单独计量；S1_WAIT_S4 是嵌套窗口，纯计算 = 本窗口 - WAIT_S4。
+            // k̂ 阶段窗口：归一化与 L1 上传，保留原有功能同步。
             const int32_t iterKUp = timer_.NextIter(AscendTimer::S1A_KUPLOAD);
             timer_.TikNoBarrier(AscendTimer::S1A_KUPLOAD, iterKUp);
             L2NormK128VF<InDtype>(ubK[db], ubKHat[db], ubKRstd[db], static_cast<uint32_t>(nValid),
                                   kGdnL2NormEps);
             SetFlag<HardEvent::V_MTE3>(kHeUb0);
             WaitFlag<HardEvent::V_MTE3>(kHeUb0);
-            {
-                const int32_t iterW = timer_.NextIter(AscendTimer::S1_WAIT_S4);
-                timer_.TikNoBarrier(AscendTimer::S1_WAIT_S4, iterW);
-                WaitAicStage4Done(taskIdx);
-                timer_.TokNoBarrier<Overwrite>(AscendTimer::S1_WAIT_S4, iterW);
-            }
+            WaitAicStage4Done(taskIdx);
             UploadBf16NdToL1(l1K, ubKHat[db], static_cast<uint32_t>(K));
             timer_.TokNoBarrier<Overwrite>(AscendTimer::S1A_KUPLOAD, iterKUp);
-            // 通知是瞬时点：Tik 紧跟 Tok，取中点作时刻基准。
-            const int32_t iterNotify = timer_.NextIter(AscendTimer::S1_NOTIFY);
-            timer_.TikNoBarrier(AscendTimer::S1_NOTIFY, iterNotify);
             NotifyAicStage1Done(taskIdx);
-            timer_.TokNoBarrier<Overwrite>(AscendTimer::S1_NOTIFY, iterNotify);
             DataCopy(gmKHat[offQk], ubKHat[db], nElem);
             CopyUbToGmElems(gmKRstd[offRstd], ubKRstd[db], static_cast<uint32_t>(nValid));
 
             DataCopy(ubQ[db], gmQ[offQk], nElem);
             SetFlag<HardEvent::MTE2_V>(kHeUb0);
-            {
-                const int32_t iterMte2 = timer_.NextIter(AscendTimer::MTE2);
-                timer_.TikNoBarrier(AscendTimer::MTE2, iterMte2);
-                WaitFlag<HardEvent::MTE2_V>(kHeUb0);
-                timer_.TokNoBarrier<Overwrite>(AscendTimer::MTE2, iterMte2);
-            }
+            WaitFlag<HardEvent::MTE2_V>(kHeUb0);
             // q̂：归一化 + 导出 GM。
             const int32_t iterQUp = timer_.NextIter(AscendTimer::S1A_QUPLOAD);
             timer_.TikNoBarrier(AscendTimer::S1A_QUPLOAD, iterQUp);
@@ -417,20 +397,12 @@ public:
         } else {
             SetFlag<HardEvent::MTE2_MTE3>(kHeUb0);
             WaitFlag<HardEvent::MTE2_MTE3>(kHeUb0);
-            {
-                const int32_t iterW = timer_.NextIter(AscendTimer::S1_WAIT_S4);
-                timer_.TikNoBarrier(AscendTimer::S1_WAIT_S4, iterW);
-                WaitAicStage4Done(taskIdx);
-                timer_.TokNoBarrier<Overwrite>(AscendTimer::S1_WAIT_S4, iterW);
-            }
+            WaitAicStage4Done(taskIdx);
             const int32_t iterKUp = timer_.NextIter(AscendTimer::S1A_KUPLOAD);
             timer_.TikNoBarrier(AscendTimer::S1A_KUPLOAD, iterKUp);
             UploadBf16NdToL1(l1K, ubK[db], static_cast<uint32_t>(K));
             timer_.TokNoBarrier<Overwrite>(AscendTimer::S1A_KUPLOAD, iterKUp);
-            const int32_t iterNotify = timer_.NextIter(AscendTimer::S1_NOTIFY);
-            timer_.TikNoBarrier(AscendTimer::S1_NOTIFY, iterNotify);
             NotifyAicStage1Done(taskIdx);
-            timer_.TokNoBarrier<Overwrite>(AscendTimer::S1_NOTIFY, iterNotify);
         }
     }
 
@@ -489,12 +461,7 @@ public:
         const int32_t db = PingPongSlot(taskIdx);
         if (db == 0) {
             SetFlag<HardEvent::MTE3_MTE2>(kHeUb0);
-            {
-                const int32_t iterMte3 = timer_.NextIter(AscendTimer::MTE3);
-                timer_.TikNoBarrier(AscendTimer::MTE3, iterMte3);
-                WaitFlag<HardEvent::MTE3_MTE2>(kHeUb0);
-                timer_.TokNoBarrier<Overwrite>(AscendTimer::MTE3, iterMte3);
-            }
+            WaitFlag<HardEvent::MTE3_MTE2>(kHeUb0);
         }
         Stage1_PadTailIfNeeded(chunk, hv, taskIdx);
         Stage1_UploadK(chunk, hv, taskIdx);
@@ -592,12 +559,7 @@ public:
 
     __aicore__ inline void Stage3_AivOne(int64_t hv, int64_t taskIdx)
     {
-        {
-            const int32_t iterW = timer_.NextIter(AscendTimer::S3B_WAIT_KKT);
-            timer_.TikNoBarrier(AscendTimer::S3B_WAIT_KKT, iterW);
-            WaitCubeKktDone(taskIdx);
-            timer_.TokNoBarrier<Overwrite>(AscendTimer::S3B_WAIT_KKT, iterW);
-        }
+        WaitCubeKktDone(taskIdx);
         // 纯计算窗口：Tik 放在 WaitCubeKktDone 之后，到最后一个 L1 写回为止。
         const int32_t iterEpi = timer_.NextIter(AscendTimer::S3B_EPI);
         timer_.TikNoBarrier(AscendTimer::S3B_EPI, iterEpi);
@@ -994,12 +956,7 @@ public:
                 if (!OwnsHk(PackWorkId(cur.base, cur.nThis, t) % HV)) {
                     continue;
                 }
-                {
-                    const int32_t iterW = timer_.NextIter(AscendTimer::S2_WAIT_S1);
-                    timer_.TikNoBarrier(AscendTimer::S2_WAIT_S1, iterW);
-                    WaitAivStage1Done(t);
-                    timer_.TokNoBarrier<Overwrite>(AscendTimer::S2_WAIT_S1, iterW);
-                }
+                WaitAivStage1Done(t);
                 Stage2_AicOne(t, cur.nThis);
                 if (HRatio > 1) {
                     NotifyKktSiblings(cur.base, cur.nThis, t);
@@ -1007,20 +964,10 @@ public:
             }
             Stage4_PrefillI(cur.nThis);
             if (cur.nThis > 0) {
-                {
-                    const int32_t iterW = timer_.NextIter(AscendTimer::S4_WAIT_S3);
-                    timer_.TikNoBarrier(AscendTimer::S4_WAIT_S3, iterW);
-                    WaitAivStage3Done(0);
-                    timer_.TokNoBarrier<Overwrite>(AscendTimer::S4_WAIT_S3, iterW);
-                }
+                WaitAivStage3Done(0);
                 Stage4_AccIssue(0);
                 for (int64_t t = 1; t < cur.nThis; ++t) {
-                    {
-                        const int32_t iterW = timer_.NextIter(AscendTimer::S4_WAIT_S3);
-                        timer_.TikNoBarrier(AscendTimer::S4_WAIT_S3, iterW);
-                        WaitAivStage3Done(t);
-                        timer_.TokNoBarrier<Overwrite>(AscendTimer::S4_WAIT_S3, iterW);
-                    }
+                    WaitAivStage3Done(t);
                     Stage4_AccIssue(t);
                     Stage4_Dump(t - 1);
                 }
@@ -1037,12 +984,7 @@ public:
                 }
             }
             for (int64_t t = 0; t < cur.nThis; ++t) {
-                {
-                    const int32_t iterW = timer_.NextIter(AscendTimer::S7_WAIT_S6);
-                    timer_.TikNoBarrier(AscendTimer::S7_WAIT_S6, iterW);
-                    WaitAivStage6Done(t);
-                    timer_.TokNoBarrier<Overwrite>(AscendTimer::S7_WAIT_S6, iterW);
-                }
+                WaitAivStage6Done(t);
                 ChunkRange chunk;
                 int64_t hv;
                 DecodeTask(cur.base, cur.nThis, t, chunk, hv);
@@ -1069,8 +1011,8 @@ public:
     __aicore__ inline void Process()
     {
         // 诊断锚点：同一代码点各核各取一次 cycle，不加任何会合。
-        // 真正的跨核基准用 S1_NOTIFY（AIV）与 S2_WAIT_S1（AIC）这一对
-        // 已有握手来校准；全核 SyncAll 需要 SetScheduleMode(1)，会改变调度，不采用。
+        // 跨核时间直接比较共享原始 cycle；trace 默认使用全核最小有效起点，
+        // 只有显式 --align-anchor 才按各核 ANCHOR 归零。
         if (timerKernelStartCycle_ != 0) {
             timer_.TikNoBarrier();
             timer_.TokNoBarrier<Overwrite>(AscendTimer::ANCHOR);

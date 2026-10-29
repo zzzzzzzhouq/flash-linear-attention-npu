@@ -304,12 +304,7 @@ public:
                 }
                 LoadStage1G(loc, hvBase + headOffset, streamSlot_);
                 SetFlag<HardEvent::MTE2_V>(mte2ToV_[streamSlot_]);
-                {
-                    const int32_t iterMte2 = timer_->NextIter(AscendTimer::MTE2);
-                    timer_->TikNoBarrier(AscendTimer::MTE2, iterMte2);
-                    WaitFlag<HardEvent::MTE2_V>(mte2ToV_[streamSlot_]);
-                    timer_->template TokNoBarrier<Overwrite>(AscendTimer::MTE2, iterMte2);
-                }
+                WaitFlag<HardEvent::MTE2_V>(mte2ToV_[streamSlot_]);
                 ComputeStage1Gate(loc, streamSlot_, streamSlot_);
                 streamSlot_ ^= 1U;
             }
@@ -334,12 +329,7 @@ public:
                         ubBuf_.GetWithOffset<bfloat16_t>(matrixElems,
                                                          ChunkFwdOAPrimeBf16Offset(streamSlot_));
                     Catlass::Arch::CrossCoreWaitFlag(cubeToVecFlag_);
-                    {
-                        const int32_t iterMte3 = timer_->NextIter(AscendTimer::MTE3);
-                        timer_->TikNoBarrier(AscendTimer::MTE3, iterMte3);
-                        WaitFlag<HardEvent::MTE3_V>(mte3ToVStream_[streamSlot_]);
-                        timer_->template TokNoBarrier<Overwrite>(AscendTimer::MTE3, iterMte3);
-                    }
+                    WaitFlag<HardEvent::MTE3_V>(mte3ToVStream_[streamSlot_]);
                     {
                         // O_V2_MASK 全段：tril + 衰减 → A′，并把 A′ 写进 L1。
                         const int32_t iterMask = timer_->NextIter(AscendTimer::O_V2_MASK);
@@ -406,12 +396,7 @@ public:
                     ubBuf_.GetWithOffset<float>(bt * vDim, ChunkFwdOOlOffset(streamSlot_));
                 LocalTensor<bfloat16_t> oOut =
                     ubBuf_.GetWithOffset<bfloat16_t>(bt * vDim, ChunkFwdOOlOffset(streamSlot_));
-                {
-                    const int32_t iterMte3 = timer_->NextIter(AscendTimer::MTE3);
-                    timer_->TikNoBarrier(AscendTimer::MTE3, iterMte3);
-                    WaitFlag<HardEvent::MTE3_V>(mte3ToVStream_[streamSlot_]);
-                    timer_->template TokNoBarrier<Overwrite>(AscendTimer::MTE3, iterMte3);
-                }
+                WaitFlag<HardEvent::MTE3_V>(mte3ToVStream_[streamSlot_]);
                 PipeBarrier<PIPE_V>();
                 {
                     // O_V3_OUTPUT 全段：o = scale·(O_s′ + O_l)，并写回 GM。

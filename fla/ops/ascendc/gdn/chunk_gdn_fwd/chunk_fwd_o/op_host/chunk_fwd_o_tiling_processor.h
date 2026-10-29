@@ -335,12 +335,23 @@ public:
         return (a + b - 1) / b;
     }
 
+    int64_t SelectA5TaskGroupSize() const
+    {
+        int64_t groupSize = tiling_.hvPerHk == 3 ? 3 : 4;
+        while (groupSize > 1 &&
+               tiling_.chunkNum * CeilDiv(tiling_.vNumHead, groupSize) <
+                   static_cast<int64_t>(ctx_.aicCoreNum)) {
+            --groupSize;
+        }
+        return groupSize;
+    }
+
     ge::graphStatus A5ChunkTilingFixLen()
     {
         tiling_.numChunksPerBatch = CeilDiv(tiling_.seqlen, tiling_.chunkSize);
         tiling_.chunkNum = tiling_.shapeBatch * tiling_.numChunksPerBatch;
         tiling_.hvPerHk = tiling_.vNumHead / tiling_.kNumHead;
-        tiling_.taskGroupSize = tiling_.hvPerHk == 3 ? 3 : 4;
+        tiling_.taskGroupSize = SelectA5TaskGroupSize();
         return ge::GRAPH_SUCCESS;
     }
 
@@ -353,7 +364,7 @@ public:
         tiling_.chunkNum = chunkOffsetsShape.GetDim(CHUNK_FWD_O_DIM_BATCH) / CHUNK_FWD_O_CHUNK_OFFSETS_PAIR_SIZE;
         tiling_.numChunksPerBatch = 0;
         tiling_.hvPerHk = tiling_.vNumHead / tiling_.kNumHead;
-        tiling_.taskGroupSize = tiling_.hvPerHk == 3 ? 3 : 4;
+        tiling_.taskGroupSize = SelectA5TaskGroupSize();
         return ge::GRAPH_SUCCESS;
     }
 

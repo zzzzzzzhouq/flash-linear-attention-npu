@@ -96,7 +96,6 @@ def check_dependencies(fieldnames, rows, cycles_per_us, tol_us=0.5):
       * AIC KKT         after AIV stage1 upload (NotifyAicStage1Done)
       * AIC solve issue after AIV stage3 epilogue (WaitAivStage3Done)
       * AIC W/U issue   after AIV stage6 WU_K upload (WaitAivStage6Done)
-      * wait windows    end inside their producer's window
     Returns (violations, lines) where each line is a printable report row.
     """
     groups = {}
@@ -134,33 +133,6 @@ def check_dependencies(fieldnames, rows, cycles_per_us, tol_us=0.5):
             lines.append(f"  g{group_id:02d} {label:18s} {delta:+8.2f} us  {'OK' if ok else 'VIOLATION'}")
             if not ok:
                 violations.append((group_id, label, delta))
-        # 等待窗口：优先用同一瞬间的 notify 校准，没有 notify 时退回 producer 窗口包含检查
-        tol_cycles = tol_us * cycles_per_us
-        for wait_name, notify_name, prod_name in (("S2_WAIT_S1_0", "S1_NOTIFY_0", "S1A_KUPLOAD_0"),
-                                                  ("S4_WAIT_S3_0", None, "S3B_EPI_0"),
-                                                  ("S7_WAIT_S6_0", None, "S6_KBG_0")):
-            wait = first(aic, wait_name)
-            if wait is None:
-                continue
-            notify = first(aiv, notify_name) if notify_name else None
-            if notify is not None:
-                delta = (wait[1] - notify[1]) / cycles_per_us
-                ok = abs(delta) <= tol_us
-                label = f"{wait_name} vs notify"
-                lines.append(f"  g{group_id:02d} {label:18s} {delta:+8.2f} us  "
-                             f"{'OK' if ok else 'VIOLATION'}")
-                if not ok:
-                    violations.append((group_id, label, delta))
-                continue
-            producer = span(aiv, prod_name)
-            if producer is None:
-                continue
-            ok = producer[0] - tol_cycles <= wait[1] <= producer[1] + tol_cycles
-            delta = (wait[1] - producer[0]) / cycles_per_us
-            lines.append(f"  g{group_id:02d} {wait_name:18s} end-prod.start {delta:+8.2f} us  "
-                         f"{'OK' if ok else 'VIOLATION'}")
-            if not ok:
-                violations.append((group_id, wait_name, delta))
     return violations, lines
 
 

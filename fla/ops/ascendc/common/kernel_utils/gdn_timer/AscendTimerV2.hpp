@@ -7,8 +7,8 @@ namespace AscendTimer
 {
 // ========== 1. 枚举定义（CPU/NPU 共用） ==========
 // 按 chunk_gated_delta_rule_fwd 三算子路径（Prepare / FwdH / FwdO）的实际阶段命名。
-// 规则：默认只给"计算/下发"窗口打点；诊断用的 Init 拆分与等待窗口在末尾单独列出，
-//       它们只包已有同步，不新增任何业务同步。
+// 规则：只给计算/下发窗口和诊断用 Init 拆分打点，不单独记录 wait/notify；
+//       功能性同步仍保留在原业务路径中。
 // 固定计时项（整个 kernel 只跑一次）
 enum FixedTiming : int32_t
 {
@@ -24,13 +24,12 @@ enum FixedTiming : int32_t
 //   Prepare: S0 / S1A(S1a) / S1B(S1b) / S1_PRE / S2 / S3A / S3B / S4 / S5 / S6 / S7
 //   FwdH:    H_C0 / H_C1 / H_V1 / H_C2 / H_V2
 //   FwdO:    O_V1 / O_C1A / O_C1B / O_V2 / O_C3 / O_V3
-//   等待：    <消费阶段>_WAIT_<生产阶段>，如 S2_WAIT_S1
 enum DynamicTimingType : int32_t
 {
     // ---- Prepare（S0-S7）----
     S0_AUX,              // S0：常驻辅助（I_vcs/索引/清零）
     S1_PRE_TAIL,         // S1-pre：尾块补齐（仅 tail 命中）
-    S1A_KUPLOAD,         // S1a：k̂ 归一化 + L1 上传（NotifyAicStage1Done 在窗口内）
+    S1A_KUPLOAD,         // S1a：k̂ 归一化 + L1 上传（NotifyAicStage1Done 在窗口后）
     S1A_QUPLOAD,         // S1a'：q̂ 归一化 + 导出（仅 useQkL2norm=1 时执行）
     S1B_GATE_BETA,       // S1b：gate cumsum / β sigmoid / 导出
     S2_KKT,              // S2：KKT = k̂·k̂ᵀ 的 MMAD（每 (chunk, HK) 一次）
@@ -62,25 +61,11 @@ enum DynamicTimingType : int32_t
     O_C3_ATTNV,          // C3：O_l = A′·v_new
     O_V3_OUTPUT,         // V3：o = scale·(O_s′+O_l)
 
-    // ---- 诊断：Init 拆分 + 等待窗口（不改变上面任何既有窗口的定义）----
+    // ---- 诊断：Init 拆分 ----
     // Init 拆分用于回答"AIV Init 比 AIC 多 1.5us 花在哪"。
     INIT_MAP,            // Init：InitOnChip 整体
     INIT_WS,             // Init：workspace 绑定
     INIT_GM,             // Init：GM SetGlobalBuffer 批次
-    // 等待窗口：只包已有 CrossCoreWaitFlag，不新增任何同步。
-    // 导出时用于断言 wait_end ≈ producer notify。
-    S2_WAIT_S1,          // AIC：WaitAivStage1Done（producer = S1_NOTIFY）
-    S4_WAIT_S3,          // AIC：WaitAivStage3Done（producer = S3B_EPI）
-    S7_WAIT_S6,          // AIC：WaitAivStage6Done（producer = S6_KBG）
-    S1_WAIT_S4,          // AIV：WaitAicStage4Done（producer = S4_DUMP）
-    S3B_WAIT_KKT,        // AIV：WaitCubeKktDone（producer = S2_KKT）
-    S1_NOTIFY,           // AIV：NotifyAicStage1Done 的瞬时点，跨核时间基准的校准锚
-
-    // ---- 搬运等待（诊断）----
-    // MTE2：阻塞在"输入数据从 GM 到达"上（消费侧 WaitFlag<MTE2_V>）
-    // MTE3：阻塞在"上一轮写回完成 / 缓冲槽可复用"上（WaitFlag<MTE3_MTE2> 或 <MTE3_V>）
-    MTE2,
-    MTE3,
 
     DYNAMIC_TYPE_COUNT_ENUM
 };
