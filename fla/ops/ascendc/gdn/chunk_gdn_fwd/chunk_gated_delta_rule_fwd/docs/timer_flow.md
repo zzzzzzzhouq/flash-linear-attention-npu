@@ -113,13 +113,13 @@ aclnn ChunkGatedDeltaRuleFwd
 
 - 所有动态项是 issue window，**不是完成时延**；异步 MMAD 的完成要看后续功能性等待/产物消费点。
 - 窗口可重叠，**不可相加**；总时间只看 `KERNEL_TIMING_IDX`。
-- 每核每阶段最多 `MAX_DYNAMIC_ITER = 64` 次，超出截断（`PublishCounts()` → `setDynamicActualIter` 记录实际次数）。
+- 每核每阶段最多 `MAX_DYNAMIC_ITER = 1088` 次，超出截断（`PublishCounts()` → `setDynamicActualIter` 记录实际次数）。
 - 跨核绝对时间需先核实 AIC/AIV 共同时钟；未核实时只比较本核内的相对顺序与时长。
 - 跨核等待必须挂在**标量 pipe**（`CrossCoreWaitFlag<0x4, PIPE_S>(id)`）。写 `PIPE_MTE1` / `PIPE_V`
   时只挡对应管道、标量继续下发，Tik/Tok 会整体前移数 us，图上表现为 C/V 两轨错位；
   写默认 `PIPE_ALL` 则会把每条 pipe 都排空，标量时间对了但整体慢 ~23%。
-- 各核启动有 ~1us 散布，跨核叠加前用每核 `ANCHOR`（body 入口同一代码点）对齐；
-  `profile_gdn.py` 默认按 ANCHOR 对齐，`--no-align-anchor` 可退回全局 min-start。
+- 真实跨核流水使用共享原始时钟和全局 min-start：`--shared-clock --no-align-anchor`。
+  各核 `ANCHOR` 只是各自的 body 入口，不是全核同步点；逐核减 ANCHOR 只用于核内视图，不能用于判断 C/V 因果顺序。
 
 ## 5. 实现落点与设计的偏差（以代码为准）
 

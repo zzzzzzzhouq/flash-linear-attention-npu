@@ -86,7 +86,8 @@ enum DynamicTimingType : int32_t
 };
 
 // ========== 2. 公共常量定义（CPU/NPU 共用） ==========
-static constexpr int MAX_DYNAMIC_ITER = 64;
+// 覆盖官方 T=11264/HV=32 case 中 FwdH 每核 1056 次 W/H/K 预取记录；普通调用不分配 timer 缓冲。
+static constexpr int MAX_DYNAMIC_ITER = 1088;
 
 static constexpr int N_TIMING_ITEM_PER_CORE = FIXED_TIMING_COUNT + DYNAMIC_TYPE_COUNT_ENUM * MAX_DYNAMIC_ITER;
 static constexpr int N_TIMING_COUNTER_PER_CORE = N_TIMING_ITEM_PER_CORE * 2;

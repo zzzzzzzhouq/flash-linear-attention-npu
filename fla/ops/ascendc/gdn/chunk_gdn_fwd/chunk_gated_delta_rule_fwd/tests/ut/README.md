@@ -76,7 +76,7 @@ python trace_parser.py --timer-dir profiling_results/gdn_fwd_timer \
 - 所有 `S*` / `H_*` / `O_*` 都是**下发/issue 窗口**，不是完成时延；
   异步 MMAD 的实际完成要由后续功能性等待或产物消费点体现。
 - 窗口之间可以重叠，**不能相加**；总时长只看 `KERNEL_TIMING_IDX`。
-- 每核每动态项最多记录 `MAX_DYNAMIC_ITER`（当前 64）次，超出部分截断，
-  实际次数写在 `<TYPE>_IterCount` 列。
+- 每核每动态项最多记录 `MAX_DYNAMIC_ITER`（当前 1088）次，超出部分截断，
+  实际次数写在 `<TYPE>_IterCount` 列；1088 槽覆盖官方 11264 tokens case 的 1056 次 FwdH 预取。
 - 默认只导出 cycles；`cycles_per_us` 必须实测核实，跨核绝对时间要先核实
   AIC/AIV 共同时钟。
