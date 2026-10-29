@@ -28,6 +28,25 @@
 
 Prepare 的一个完整 pack 在当前 `G=HV/HK=2` 下对应一个 chunk 的 4 个 value-head task、2 份 KKT。FwdO 的一个 group task 同样覆盖一个 chunk 的 4 个 value heads。FwdH 按 `(sequence, value_head)` 分派，每个 head 的全部 chunks 固定在同一核组顺序执行。[design](kimi-cite://md-line?path=F%3A/WorkSpace/Code/GDN/flash-linear-attention-npu/.kimi/feat-src/fla/ops/ascendc/gdn/chunk_gdn_fwd/chunk_fwd_h/docs/design.md&line=176&text=Host "citation")
 
+#### 2.1.1 当前 HV=4 与目标 HV=32 的调度对比
+
+目标采集 shape 为 `B=1、HK=16、HV=32、K=V=128、chunk=64`，因此 `G=2` 不变。Prepare 的 pack 和 FwdO 的 group task 仍然都是 4 个 value heads，但每 chunk 的组数从 `ceil(4/4)=1` 增至 `ceil(32/4)=8`。Prepare 按 `pack += numCore` 跨步领取，FwdO 也按 `groupTaskIdx += coreNum` 跨步领取。[prepare_kernel](kimi-cite://md-line?path=F%3A/WorkSpace/Code/GDN/flash-linear-attention-npu/fla/ops/ascendc/gdn/chunk_gdn_fwd/chunk_gated_delta_rule_fwd_prepare/op_kernel/arch35/chunk_gated_delta_rule_fwd_prepare.h&line=779&text=const%20int64_t%20packSize "citation") [chunk_fwd_o_cube](kimi-cite://md-line?path=F%3A/WorkSpace/Code/GDN/flash-linear-attention-npu/fla/ops/ascendc/gdn/chunk_gdn_fwd/chunk_fwd_o/op_kernel/arch35/chunk_fwd_o_cube.h&line=107&text=groupTaskNum "citation")
+
+| 阶段 | tokens | 当前 HK=2、HV=4 | 目标 HK=16、HV=32 |
+|---|---:|---|---|
+| Prepare | 512 | 8 packs；8／28 核组，各 1 包 | 64 packs；28／28 核组，20 组各 2 包、8 组各 3 包 |
+| Prepare | 8960 | 140 packs；28／28 核组，各 5 包 | 1120 packs；28／28 核组，各 40 包 |
+| FwdH | 512 | 4／28 核组，各 1 head；每链 8 chunks | 16／28 核组，各 2 heads；每链仍为 8 chunks |
+| FwdH | 8960 | 4／28 核组，各 1 head；每链 140 chunks | 16／28 核组，各 2 heads；每链仍为 140 chunks |
+| FwdO | 512 | 8 group tasks；8／28 核组，各 1 组 | 64 group tasks；28／28 核组，20 组各 2 个、8 组各 3 个 |
+| FwdO | 8960 | 140 group tasks；28／28 核组，各 5 组 | 1120 group tasks；28／28 核组，各 40 组 |
+
+FwdH 的 16 核组来自 host 公式，而不是把 32 个 heads 当成 32 个核：`headsPerCore=ceil(32/28)=2`，`blockDim=ceil(32/2)=16`；每核组处理连续的两个 value heads。[chunk_fwd_h_tiling_processor](kimi-cite://md-line?path=F%3A/WorkSpace/Code/GDN/flash-linear-attention-npu/fla/ops/ascendc/gdn/chunk_gdn_fwd/chunk_fwd_h/op_host/chunk_fwd_h_tiling_processor.h&line=84&text=const%20uint64_t%20totalHeadTasks "citation")
+
+本次目标采集用 `tokens=11264`，即 176 个完整 chunks：Prepare／FwdO 各有 `176×8=1408` 个 packs／group tasks，28 核组中 20 组各 50 个、8 组各 51 个；FwdH 为 16 核组各 2 heads，每 head 仍有 176 个顺序 chunks。
+
+**调度变化的正确解读：** Prepare／FwdO 从部分或小规模填充变为 28 核组满载，但每核组工作量也增至同 token 下的 8 倍；FwdH 活跃核组增至 4 倍，每核组承担 2 个 heads，而单 head 递推链长不变。因此 HV=32 能改善并行度，却不能仅由核数判断总耗时升降，必须重新采集三阶段 Task Duration 和内部 trace。
+
 ### 2.2 时间轴与跨度
 
 - 分析使用 JSON 原始 `start_cycle/end_cycle`，按 `1800 cycles/µs` 换算。
@@ -54,6 +73,28 @@ S6  vb = v·beta；kbg = k_hat·beta·exp(g)     AIV
 S7  W = A @ kbg；U = A @ vb                  AIC
 ```
 
+#### 3.1.1 pack 是什么：task 分组与资源生命周期单位
+
+Prepare 里的 **pack 不是矩阵 packing／拼接，也不是一个 token chunk 的别名**。最小的 work item 是一个 `(chunk, value_head)` task；pack 则是 kernel 一次领取的一组 task，用来确定 AIV 分工、同一 HK 下的 KKT 复用，以及 k_hat／NegL、W／U 等片上缓冲的释放和交接边界。[prepare_common](kimi-cite://md-line?path=F%3A/WorkSpace/Code/GDN/flash-linear-attention-npu/fla/ops/ascendc/gdn/chunk_gdn_fwd/chunk_gated_delta_rule_fwd_prepare/op_kernel/arch35/chunk_gated_delta_rule_fwd_prepare_common.h&line=317&text=G%3D3%20cannot%20fill%204%20consecutive%20HV "citation")
+
+当前 `G=HV/HK=2`，一个完整 pack 有 4 个 task，覆盖同一 chunk 的 4 个 value heads 和 2 个 HK。task 顺序不是简单的 hv0／1／2／3，而是把两个 HK 的 owner 放在前面：
+
+| pack 内 task | value head | HK | 在 HK 组内的角色 | 执行 AIV |
+|---:|---:|---:|---|---|
+| 0 | hv0 | HK0 | owner，产生该 HK 的 KKT | AIV0 |
+| 1 | hv2 | HK1 | owner，产生该 HK 的 KKT | AIV1 |
+| 2 | hv1 | HK0 | sibling，复用 HK0 的 KKT | AIV0 |
+| 3 | hv3 | HK1 | sibling，复用 HK1 的 KKT | AIV1 |
+
+因此一个完整 pack 只算 **2 份 KKT**，不是每个 value head 都算一份。更一般地，`G=3` 时一个 pack 放 3 个 task、覆盖 1 个 HK；其余情况一个完整 pack 放 4 个 task，`G=1／2／4` 分别覆盖 4／2／1 个 HK。[prepare_kernel](kimi-cite://md-line?path=F%3A/WorkSpace/Code/GDN/flash-linear-attention-npu/fla/ops/ascendc/gdn/chunk_gdn_fwd/chunk_gated_delta_rule_fwd_prepare/op_kernel/arch35/chunk_gated_delta_rule_fwd_prepare.h&line=8&text=Pack%3A%20TG%20%3D%203%20if%20G%3D3%20else%204 "citation")
+
+当前 case 的 work item 总数为 `chunk 数 × HV=4`，所以 pack 数为：
+
+- **512：**`8 chunks × 4 ÷ 4 tasks/pack = 8 packs`。28 个核组按 `pack = coreIdx; pack += numCore` 跨步领取，只有 8 个核组各执行 1 包。
+- **8960：**`140 × 4 ÷ 4 = 140 packs`，28 个核组全部活跃，每个核组依次执行 5 包。[prepare_kernel](kimi-cite://md-line?path=F%3A/WorkSpace/Code/GDN/flash-linear-attention-npu/fla/ops/ascendc/gdn/chunk_gdn_fwd/chunk_gated_delta_rule_fwd_prepare/op_kernel/arch35/chunk_gated_delta_rule_fwd_prepare.h&line=779&text=const%20int64_t%20packSize "citation")
+
+pack 边界也是跨包流水的依据：下一 pack 的 S1 只等上一 pack S4 释放 k_hat／NegL，不等 S7；上一 pack 的 W／U 先留在对应 AIV 的 UB，下一 pack 再把它们 drain 到 GM。于是一个核组内可以出现“上一包 S5／S7／回写”与“下一包 S1”重叠。profiling 按 pack 分组，就是为了把首包、首次交接和稳态包分开，而不是把不同 chunk／head 的事件混成一条平均时间线。
+
 主依赖是 `S1 → S2 → S3 → S4 → S5 → S7`，同时存在两条重要重叠：
 
 - S6 只依赖 S3 和输入，不必等 S4／S5，因此可与 Cube 的 S4／S5 重叠。
@@ -65,20 +106,92 @@ S7  W = A @ kbg；U = A @ vb                  AIC
 
 ### 3.2 FwdH：沿 chunk 严格递推 state
 
-每个 value head、每个 chunk 执行：
+#### 3.2.1 先分清 R、H、V_new 和 right
+
+- `R_c`：chunk 入口处的**真实 rolling state**。当前 FP32 路径把它保存在 AIV UB，Stage3 用 FP32 算术更新。
+- `H_c = cast_BF16(R_c)`：入口 state 的 **BF16 快照**。AIC 用它算 `P=W_c@H_c`，FwdO 也用它算当前 chunk 的历史输出项。
+- `V_new,c`：当前 chunk 扣掉旧 state 已能解释的部分后，真正要写入的新内容，FwdO 的 `A′@V_new` 也需要它。
+- `right_c`：带相对衰减的 `V_new`，只供本 chunk 的 `D=K_c^T@right_c` 使用。
+
+普通 chunk 的完整数据流是：
 
 ```text
-H_c       = cast_BF16(R_c)
-P         = W_c @ H_c                         AIC / Stage0
-V_new     = cast_BF16(fp32(U_c) - fp32(P))    AIV / Stage1
-right     = cast_BF16(exp(g_last-g_i) * V_new_fp32)
-D         = K_c^T @ right                     AIC / Stage2
-R_next    = exp(g_last) * R_c + D              AIV / Stage3
+UB 中的 FP32 R_c
+    ├─生成 BF16 H_c──────────────→ FwdO 使用 H_c
+    ↓
+AIC Stage0：P = W_c @ H_c
+    ↓ P
+AIV Stage1：V_new = cast_BF16(fp32(U_c) - fp32(P))
+    ├─写 V_new,c─────────────────→ FwdO 使用 V_new,c
+    ↓ 再乘 exp(g_last-g_i)
+AIV 生成 right_c
+    ↓ right_c
+AIC Stage2：D_c = K_c^T @ right_c
+    ↓ D_c
+AIV Stage3：R_{c+1} = exp(g_last) * R_c + D_c
+    ├─更新 UB 中的 FP32 rolling state
+    └─生成并写出下一块 BF16 H_{c+1}
 ```
 
-不请求 final state 时，最后 chunk 只需产生当前 H 和 V_new，可跳过 Stage2／Stage3；首个无初态 chunk 跳过 `P=W@H`。所以 8960 case 每 head 有 140 个 V1、139 次完整 state 更新。[design](kimi-cite://md-line?path=F%3A/WorkSpace/Code/GDN/flash-linear-attention-npu/.kimi/feat-src/fla/ops/ascendc/gdn/chunk_gdn_fwd/chunk_fwd_h/docs/design.md&line=13&text=%E8%AE%A1%E7%AE%97%E8%AF%AD%E4%B9%89 "citation")
+所以 Stage1 和 Stage2／3 服务的是两个不同消费者：**FwdO 要当前块的 H_c 和 V_new,c；下一块 FwdH 才需要 right_c、D_c 和更新后的 R_{c+1}。**[design](kimi-cite://md-line?path=F%3A/WorkSpace/Code/GDN/flash-linear-attention-npu/.kimi/feat-src/fla/ops/ascendc/gdn/chunk_gdn_fwd/chunk_fwd_h/docs/design.md&line=13&text=%E8%AE%A1%E7%AE%97%E8%AF%AD%E4%B9%89 "citation")
 
-当前 FP32 scalar-g 单 head 路径已有 W/K 双 bank、U/g 双 bank 预取、FP32 rolling state 常驻 AIV UB，以及 P/D/right/state 的 ready/free 协议。因此“再增加普通 W/K 预取”或“把 FP32 state 改为常驻”不是新的优化方案。
+#### 3.2.2 首个无初态 chunk：为什么跳过 P=W@H
+
+无 `initial_state` 时，数学上入口状态是零矩阵 `R_0=0`，因此：
+
+```text
+P_0 = W_0 @ H_0 = W_0 @ 0 = 0
+V_new,0 = U_0 - P_0 = U_0
+```
+
+代码在 `chunk.first && useInitialState==0` 时直接从 Stage0 返回；AIV 侧同一个条件令 `hasP=false`，不再等待或读取 P，并按零状态路径计算 `V_new=U`。这不是跳过整个首块：首块仍然生成 FwdO 需要的零 H_0 和 V_new,0；只要后面还有 chunk，仍然要生成 right_0、计算 D_0 并更新 R_1。[chunk_fwd_h_cube](kimi-cite://md-line?path=F%3A/WorkSpace/Code/GDN/flash-linear-attention-npu/.kimi/feat-src/fla/ops/ascendc/gdn/chunk_gdn_fwd/chunk_fwd_h/op_kernel/arch35/chunk_fwd_h_cube.h&line=470&text=chunk.first "citation") [chunk_fwd_h_vec](kimi-cite://md-line?path=F%3A/WorkSpace/Code/GDN/flash-linear-attention-npu/.kimi/feat-src/fla/ops/ascendc/gdn/chunk_gdn_fwd/chunk_fwd_h/op_kernel/arch35/chunk_fwd_h_vec.h&line=797&text=hasP "citation")
+
+#### 3.2.3 最后 chunk 不请求 final_state：为什么跳过 Stage2／Stage3
+
+设最后 chunk 为 `c=139`。FwdO 需要的是它**入口处**的 `H_139` 和本块 `V_new,139`，并不需要 `R_140`；调用方又不要求输出 final state，所以以下产物没有消费者：
+
+```text
+right_139 → D_139 → R_140 / final_state
+```
+
+kernel 因而仍执行 Stage0 和 Stage1，生成 `P_139` 与 `V_new,139`，但不生成 right_139，也不执行 K 装载、`D=K^T@right` 和 state 更新。`NeedsStage2/NeedsStage3` 的条件都是 `storeFinalState || !chunk.last`。[chunk_fwd_h_cube](kimi-cite://md-line?path=F%3A/WorkSpace/Code/GDN/flash-linear-attention-npu/.kimi/feat-src/fla/ops/ascendc/gdn/chunk_gdn_fwd/chunk_fwd_h/op_kernel/arch35/chunk_fwd_h_cube.h&line=702&text=NeedsStage2 "citation") [chunk_fwd_h_vec](kimi-cite://md-line?path=F%3A/WorkSpace/Code/GDN/flash-linear-attention-npu/.kimi/feat-src/fla/ops/ascendc/gdn/chunk_gdn_fwd/chunk_fwd_h/op_kernel/arch35/chunk_fwd_h_vec.h&line=798&text=writeRight "citation")
+
+因此 8960 case 每 head 的计数是：
+
+| 项目 | 数量 | 原因 |
+|---|---:|---|
+| Stage1／V_new | 140 | 每个 chunk 都要给 FwdO 提供 V_new，包括首块和尾块 |
+| 完整 right→D→R_next 更新 | 139 | 只有 chunk 0～138 需要为下一块产生状态 |
+| 尾块 Stage2／Stage3 | 0 | 不请求 final state，R_140 没有消费者 |
+
+若请求 final state，尾块也会执行完整 Stage2／Stage3；若序列只有一个 chunk 且无初态、无 final state，则 Stage0 和 Stage2／3 都可省略，只保留必要的 H／V_new 生成。
+
+#### 3.2.4 W/K 双 bank：具体预取什么、在哪里重叠
+
+当前 FP32 scalar-g **单 head work unit** 在 AIC L1 中给 W 准备 slot 0／1、给 K 准备 slot 2／3，按 chunk 奇偶使用：
+
+```text
+chunk c 使用：       W[c%2]、K[2+c%2]
+chunk c+1 预取到：   W[(c+1)%2]、K[2+(c+1)%2]
+```
+
+进入循环前先装载首块 W／K。处理 chunk c 时，AIC 在当前 right 的 GM→L1 已经下发后，立即向另一组 bank 下发 chunk c+1 的 W／K；随后继续使用当前 bank 做 Stage2。这样下一块的 MTE2 输入搬运可以覆盖当前块的 MTE1／MMAD／Fixpipe，而不会覆盖正在使用的 W／K。实现见单 head 流水。[chunk_fwd_h_cube](kimi-cite://md-line?path=F%3A/WorkSpace/Code/GDN/flash-linear-attention-npu/.kimi/feat-src/fla/ops/ascendc/gdn/chunk_gdn_fwd/chunk_fwd_h/op_kernel/arch35/chunk_fwd_h_cube.h&line=715&text=%E5%8D%95%20head%20%E7%A8%B3%E6%80%81 "citation")
+
+它隐藏的是**输入搬运延迟**，不是递推等待：下一块 H 仍必须等上一块 Stage3 发布 `H_READY`，所以普通 W/K lookahead 不能把同一 head 的 chunks 并行化。
+
+#### 3.2.5 U/g 双 bank：AIV 侧如何配合
+
+AIV 也用 chunk 奇偶选择两个 U/g input bank。处理 chunk c 前，先向另一个 bank 下发 chunk c+1 的 U/g，再消费当前 bank 做 Stage1；当前计算与下一块 MTE2 因此重叠。自由信用防止预取覆盖尚未消费的数据：U/V_new work bank 由 MTE3→MTE2 free credit 保护，gate/alpha bank 等 Stage3 的最后向量消费者完成后才释放。[design](kimi-cite://md-line?path=F%3A/WorkSpace/Code/GDN/flash-linear-attention-npu/.kimi/feat-src/fla/ops/ascendc/gdn/chunk_gdn_fwd/chunk_fwd_h/docs/design.md&line=160&text=lookahead "citation")
+
+也就是说，W/K 双 bank 在 AIC L1，U/g 双 bank 在 AIV UB，两边分别隐藏输入流；P、D、right、H 的生产消费顺序仍由 ready/free 协议维持。
+
+#### 3.2.6 FP32 rolling state 常驻：哪些 GM 搬运已经省掉
+
+A5 FP32 路径在每个 AIV 的 UB 中预留两份 64 KiB state bank，分别绑定 local head slot 0／1；当前单 head work unit 使用 local slot 0。首块有 initial state 时只从 GM 读入一次，无初态时直接在 VF 中构造零状态。之后每个 Stage3 都在 UB 内原地执行 `R_next=decay*R+D`，后续 chunk 不再从 GM workspace 恢复 R，也不逐块把 R 写回 workspace。[design](kimi-cite://md-line?path=F%3A/WorkSpace/Code/GDN/flash-linear-attention-npu/.kimi/feat-src/fla/ops/ascendc/gdn/chunk_gdn_fwd/chunk_fwd_h/docs/design.md&line=124&text=state "citation")
+
+但“state 常驻”不等于 FwdH 不再写 GM：每块仍要写出 BF16 H 快照供下一块 AIC 和 FwdO 使用，V_new 仍是 FwdO 输入，right 在当前实现中仍需经 GM workspace 交给 AIC。只有请求 final state 时，末尾才把完整 FP32 R 写到 final_state。
+
+因此，“再增加普通 W/K 预取”和“把 FP32 state 改为常驻”都已经是现状，不是新的优化方案。后续优化应针对尚未消除的 right／V_new／H 数据路径、4 核组并行度和 CV 交接。
 
 ### 3.3 FwdO：chunk 内输出计算
 
@@ -91,7 +204,7 @@ C3     O_l   = A′ @ V_new
 V3     O     = scale · (O_s′ + O_l)，写回 GM
 ```
 
-Q/K 的 L1 输入在共享同一 HK 的 value heads 间复用；V 的 GM→L1 预取领先一个 head，L0 使用 ping/pong。依赖链是 `C1a/C1b → V2 → C3 → V3`，不同 head 和不同 group task 可独立并行。[chunk_fwd_o_cube](kimi-cite://text?path=F%3A/WorkSpace/Code/GDN/flash-linear-attention-npu/.kimi/feat-src/fla/ops/ascendc/gdn/chunk_gdn_fwd/chunk_fwd_o/op_kernel/arch35/chunk_fwd_o_cube.h&text=keep%20one%20V%20head%20ahead "citation")
+Q/K 的 L1 输入在共享同一 HK 的 value heads 间复用，QK 也只在每个 HK 的首个 value-head 路径上装载并计算，其余 value heads 复用结果。[chunk_fwd_o_cube](kimi-cite://md-line?path=F%3A/WorkSpace/Code/GDN/flash-linear-attention-npu/.kimi/feat-src/fla/ops/ascendc/gdn/chunk_gdn_fwd/chunk_fwd_o/op_kernel/arch35/chunk_fwd_o_cube.h&line=330&text=Load%20Q%20and%20K%20once "citation") V_new 的 GM→L1 预取领先一个 head，L0 使用 ping/pong。依赖链是 `C1a/C1b → V2 → C3 → V3`，不同 head 和不同 group task 在数学上独立，但缓冲复用仍需组边界同步。
 
 ## 4. 剔除 FwdH 尾跳变后的整体构成
 
@@ -246,6 +359,37 @@ MAX_DYNAMIC_ITER = 64
 
 ## 8. 优化方案与优先级
 
+### 8.1 预期收益区间：先统一口径
+
+下表是**方案评审用的工程估算，不是实测收益**。正数表示**耗时下降比例**，不是吞吐提升比例；“整体”指当前 8960 case 的三阶段校正跨度之和，按 `整体降幅≈阶段占比×该阶段耗时降幅` 折算，不代表已经测得真实端到端收益。P5 单独按 512 case 折算。
+
+估算只适用于本文 `B=1、HK=2、HV=4` 的采集 shape；**不能直接外推到 HV=32**。各项之间存在依赖和重叠，区间不能相加；组合方案必须重新做无 timer A/B。P1 的 2／4 列块理想并行上界分别为 FwdH 耗时下降 50%／75%，工程区间已为小 MMAD、复制读取和同步开销留出折损，但仍有较大不确定性。
+
+| 优化点 | 局部 Task Duration 降幅预估 | 三阶段合计耗时降幅预估 | 估算边界 |
+|---|---:|---:|---|
+| P0 Timer Guard 重采 | 0% | 0% | 测量修正，不是算子加速 |
+| P1 FwdH V 切 2 列块 | 25%～40%（FwdH） | 14.6%～23.3% | 理想上界 50%；依赖跨核扩展净收益 |
+| P1 FwdH V 切 4 列块 | 40%～60%（FwdH） | 23.3%～34.9% | 理想上界 75%；小 MMAD 和 W/K 复制风险更高 |
+| P1 消除 right GM 往返 | 5%～12%（FwdH） | 2.9%～7.0% | 新产物路径尚未验证，不能按字节数直接换算 |
+| P1 增广矩阵直接产 V_new | 暂不估正收益 | 暂不估正收益 | 研究项，额外 MMAD 可能抵消收益 |
+| P2 Stage3 严格下三角 | 5%～12%（Prepare） | 1.5%～3.6% | 只裁剪有效消费者所需区域，不是全 Stage3 减半 |
+| P2 减少 Stage3 遍历／重排 | 5%～15%（Prepare） | 1.5%～4.5% | 与上一项重叠，不能累加 |
+| P2 合并 vb／kbg 公共流程 | 0%～4%（Prepare） | 0%～1.2% | S6 已有重叠，命名窗口下降未必等于墙钟下降 |
+| P2 修复首次跨 pack 交接 | 2%～6%（Prepare） | 0.6%～1.8% | 主要是一次性供给空泡，不能按五包重复计算 |
+| P2 深化 KKT 与 S5／S7 重叠 | 2%～8%（Prepare） | 0.6%～2.4% | 以资源生命期可闭合为前提，与交接优化重叠 |
+| P2 缩短 KKT→S3 产物路径 | 2%～6%（Prepare） | 0.6%～1.8% | 当前可见间隔约 1.1～1.2 µs／pack，不能全当可消除墙钟 |
+| P2 衰减折叠进 Cube | 暂不估正收益 | 暂不估正收益 | 独立精度项目，数值与额外 Cube 工作未验证 |
+| P3 S5 direct L0C→L1 | 2%～6%（Prepare） | 0.6%～1.8% | 目标是去掉 GM 读回，同时保留必须的 GM A 输出 |
+| P3 S7 复用 A 的 L0A 装载 | 0%～3%（Prepare） | 0%～0.9% | S7 已有跨包重叠，整体收益可能接近零 |
+| P3 S7 跨 task 流水 | 2%～6%（Prepare） | 0.6%～2.4% | 与 P2 交接／重叠项不能累加 |
+| P4 FwdO Mask 与 A′ 重排 | 5%～12%（FwdO） | 0.6%～1.4% | Mask 是最大命名 AIV 项，但并非全部位于关键路径 |
+| P4 V_new 更深预取 | 0%～5%（FwdO） | 0%～0.6% | 已领先一个 head，需防止 L1 与首包成本反噬 |
+| P4 剩余组边界解耦 | 0%～5%（FwdO） | 0%～0.6% | 只针对尚未消除的所有权／等待，不重复已有前移 |
+| P4 QK／QH 复用 Q 的 L0A | 0%～3%（FwdO） | 0%～0.3% | 矩阵窗口较小，主要减少搬运而非 MMAD |
+| P5 512 Init／S0／首包压缩 | 5%～15%（512 Prepare） | 2.4%～7.3%（512 合计） | 只针对小 shape；FwdH V 切列收益另见 P1 |
+
+这些区间的用途是安排实验顺序：**P1 是高收益、高风险结构项目；P2／P3 是中等收益、可逐步验证的局部项目；P4 的整体上限受 FwdO 占比约束。** 任一项目实现后，都应以实测值替换本表估算，并记录实际 Task Duration，而不是继续沿用预估区间。
+
 ### P0：用修复后的 Timer Guard 重采，建立可信测量基线
 
 这是后续性能分析的前置条件，不属于算子数学或流水优化。用同一输入、同一环境重新采集 512／8960，并保留无 timer 对照。只有采样一致性和无 timer 性能都稳定，才用 trace 比较优化前后的关键路径。
@@ -270,14 +414,22 @@ R[:,Vs]   = decay · R[:,Vs] + D[:,Vs]
 | 2 列块 × 64 | 8 | 改动和复制流量相对温和，Cube N 仍有 64 | 并行度只翻倍 |
 | 4 列块 × 32 | 16 | 更接近可用核数，缩短单核递推工作量 | W/K 重复读取更多，Cube N=32 效率和同步次数需实测 |
 
-这是结构变更，需先完成方案与资源评审；同步修改 host work 映射、逻辑 V offset、L0/L1/UB tile、AIV VF 宽度、workspace core 映射和 H/final_state 布局测试。预期是缩短关键路径，**不预先承诺加速比**；若复制 W/K、小 MMAD 和更多同步抵消收益，就保留原方案。
+这是结构变更，需先完成方案与资源评审；同步修改 host work 映射、逻辑 V offset、L0/L1/UB tile、AIV VF 宽度、workspace core 映射和 H/final_state 布局测试。预期是缩短关键路径，**8.1 节区间只是实验目标，不是加速承诺**；若复制 W/K、小 MMAD 和更多同步抵消收益，就保留原方案。
+
+**P1 补充：评估 right 的 GM 往返，而不是再加普通预取。** 当前 AIV 生成的 right 必须经 GM workspace，再由 AIC 读入 L1；设计文档明确禁止现有 UB→L1 直搬路径。[design](kimi-cite://md-line?path=F%3A/WorkSpace/Code/GDN/flash-linear-attention-npu/.kimi/feat-src/fla/ops/ascendc/gdn/chunk_gdn_fwd/chunk_fwd_h/docs/design.md&line=78&text=right "citation") 可以在 V 切列方案稳定后，评估新的 right L1 槽和 READY/FREE 协议，目标是消除内部中转的 GM 写读；这需要重新证明 L1 容量、AIV→AIC 可见性和 WAR 生命周期，不能只替换一条 DataCopy。`[W|U]@[H;-I]` 让 Cube 直接产生 V_new 的增广矩阵方案也可作为研究项，但会增加 L0B／MMAD 工作并改变数据路径，需在 right 路径测量后单独评审。
+
+**不把“同核两个 head 交错”直接列为当前 case 的新方案。** 当前 `B=1、HV=4` 本来就是 4 核组各一个 head，没有同核第二个 head 可用来填等待；而现有多 head 路径已经按 chunk 在 round 内处理多个 head，并使用 L0 ping/pong。该建议只适用于需要复查的高 HV／多 head-per-core case，不能套用 `zq` 文档中 HV=32 的收益数字。
 
 ### P2：Prepare 先优化 Stage3 数据链和首次跨 pack 交接
 
-1. **减少 Stage3 中间数据遍历和重排。** 优先评估合并向量遍历、减少 LFull/LPacked/ResVcs 之间重复读写，以及更直接的叶块布局生成。现有 UB/L1 已接近容量上限，不能靠简单增加大 buffer 解决。
-2. **首次交接与稳态分开调。** 临时细分 KKT dump／notify，确认 pack 1 的 6.460 µs notify→KKT 有多少来自上一包 AIC 后段、资源释放和下一包 S1 放行，不要先改 KKT 数学实现。
-3. **资源生命期允许时，更深度交织下一包 KKT 与上一包 S5／S7。** 必须逐项证明 L0A/L0B/L0C、k_hat/NegL、event bank 不冲突，不能只移动 notify 或删除等待。
-4. **缩短稳态 KKT end→S3 EPI 的约 1.1～1.2 µs 产物路径。** 重点看 L0C→AIV UB dump 和通知，而非 MMAD 本身。
+1. **Stage3 只计算下游需要的严格下三角。** 当前 `MulKktGateVF` 对完整 64×64 矩阵执行 load／mul／store，但下游只消费严格下三角。可按行缩窄有效 mask、跳过无效上半区，并同步裁剪后续打包遍历；需要验证向量对齐和短行效率，不能简单假设节省恰好一半。[chunk_gated_delta_rule_fwd_prepare_vf](kimi-cite://md-line?path=F%3A/WorkSpace/Code/GDN/flash-linear-attention-npu/.kimi/feat-src/fla/ops/ascendc/gdn/chunk_gdn_fwd/chunk_gated_delta_rule_fwd_prepare/op_kernel/arch35/chunk_gated_delta_rule_fwd_prepare_vf.h&line=520&text=for%20%28uint16_t%20i "citation")
+2. **减少 Stage3 中间数据遍历和重排。** 继续评估合并向量遍历、减少 LFull/LPacked/ResVcs 之间重复读写，以及更直接的叶块布局生成。现有 UB/L1 已接近容量上限，不能靠简单增加大 buffer 解决。
+3. **合并 vb／kbg 的公共处理流程。** 当前 S6 分别执行 vb 和 kbg 的 GM→UB、行缩放与 L1 上传。可评估合并循环、地址／beta 公共准备和同步，并连续提交两个 L1 输出；两者输入分别是 v 和 k_hat，合并不必然减少输入字节，收益应来自减少公共开销和 UB／同步往返。[chunk_gated_delta_rule_fwd_prepare](kimi-cite://md-line?path=F%3A/WorkSpace/Code/GDN/flash-linear-attention-npu/.kimi/feat-src/fla/ops/ascendc/gdn/chunk_gdn_fwd/chunk_gated_delta_rule_fwd_prepare/op_kernel/arch35/chunk_gated_delta_rule_fwd_prepare.h&line=776&text=S6_VB "citation")
+4. **首次交接与稳态分开调。** 临时细分 KKT dump／notify，确认 pack 1 的 6.460 µs notify→KKT 有多少来自上一包 AIC 后段、资源释放和下一包 S1 放行，不要先改 KKT 数学实现。
+5. **资源生命期允许时，更深度交织下一包 KKT 与上一包 S5／S7。** 必须逐项证明 L0A/L0B/L0C、k_hat/NegL、event bank 不冲突，不能只移动 notify 或删除等待。
+6. **缩短稳态 KKT end→S3 EPI 的约 1.1～1.2 µs 产物路径。** 重点看 L0C→AIV UB dump 和通知，而非 MMAD 本身。
+
+衰减折叠为行／列缩放、再由 Cube 直接产出部分 L 的方案可以改变计算图，但会引入额外 BF16 舍入和指数数值范围问题；先完成上述不改变数学语义的优化，再把衰减折叠作为独立精度项目评审，不沿用其他 case 的收益估计。
 
 ### P3：Prepare 的 S5/S7 减少重复搬运并加强 task 间流水
 
@@ -287,11 +439,14 @@ R[:,Vs]   = decay · R[:,Vs] + D[:,Vs]
 
 这些优化主要帮助 Prepare AIC 后段，也可能间接缩短下一包 KKT 的供给延迟。
 
-### P4：FwdO 优化 Mask 和共享计算，放在后续
+### P4：FwdO 优化 Mask、V_new 预取和组边界，放在后续
 
 1. 优化 `Stage3Gate64VF` 的向量遍历和 A′ 的 UB→L1 重排，减少 V2 与 AttnV 之间空档。
-2. 评估每个 HK 只算一次 QK，并向共享它的 value-head 消费者发布 A_raw；新增共享存储和同步的收益必须覆盖广播成本。
-3. QK 与 QH 都使用 Q，可评估 L0A 中 Q 的复用，减少重复 L1→L0 搬运。
+2. 在现有“V_new 预取领先一个 head”基础上，评估提前到两个 head 或跨 group 预取。必须先证明新增 L1 槽、MTE2 顺序和 V_new 生命周期成立，并用组尾等待是否下降验收。
+3. 继续拆解组边界，但不重复做已实现的传输前移：当前下一组独立 Q／K／H 的 GM→L1 已在等待上一组 Stage5 之前下发，剩余候选是进一步解耦 L0／UB 所有权，而不是简单移动同一个 wait。[chunk_fwd_o_cube](kimi-cite://md-line?path=F%3A/WorkSpace/Code/GDN/flash-linear-attention-npu/.kimi/feat-src/fla/ops/ascendc/gdn/chunk_gdn_fwd/chunk_fwd_o/op_kernel/arch35/chunk_fwd_o_cube.h&line=373&text=Let%20the%20next%20task "citation")
+4. QK 与 QH 都使用 Q，可评估 L0A 中 Q 的复用，减少重复 L1→L0 搬运。
+
+“每个 HK 只算一次 QK”已经是当前实现，不再列为新优化：同一 HK 的 GVA value heads 共享 Q／K 装载和 QK 结果。
 
 ### P5：小 shape 单独处理启动和首包
 
@@ -316,9 +471,11 @@ R[:,Vs]   = decay · R[:,Vs] + D[:,Vs]
 4. **保留 `--no-timer` A/B：** 同时确认打点本身没有掩盖或制造收益；最终比较优化前后无 timer 的同口径性能。
 5. **观察指标与优化假设对应：**
    - FwdH V 切列：活跃核组数、每核递推工作量、FwdH Task Duration；检查复制 W/K 后是否仍有净收益。
+   - FwdH right 路径：right GM 写读是否消除、RIGHT_READY／FREE 等待、L1 占用和 FwdH Task Duration。
+   - Prepare Stage3／S6：S3B_EPI、S6_VB、S6_KBG 与 S7_WAIT_S6；确认下三角裁剪没有让短行向量效率反而下降。
    - Prepare 交接：pack 1 notify→KKT、S3B_WAIT_KKT、稳态 KKT end→EPI；检查是否只是把空泡移到 S4/S7。
    - Prepare S5/S7：S5_DUMP、S7 W/U、下一包 S1/KKT 起点；检查 GM 读回是否真正消除。
-   - FwdO：O_V2_MASK、Mask→AttnV、FwdO Task Duration；同时看整体收益是否值得保留复杂度。
+   - FwdO：O_V2_MASK、Mask→AttnV、组尾等待、V_new MTE2 供给和 FwdO Task Duration；同时看整体收益是否值得保留复杂度。
 6. **512 与 8960 都回归：** 防止大 shape 收益以小 shape 启动成本、tail 或负载不均衡恶化为代价。
 
 ## 11. 最终结论
@@ -328,9 +485,10 @@ R[:,Vs]   = decay · R[:,Vs] + D[:,Vs]
 ```text
 测量前提：Guard 溢出后丢弃采样，保留首次 0～63 槽；PIPE_S 不再改
 第一候选：FwdH 按 V 逻辑列切分，增加递推并行核组
-第二候选：Prepare 优化 Stage3 数据链和首次跨 pack 交接
-第三候选：减少 Prepare S5/S7 重复搬运并加强 task 间流水
-后续局部：FwdO Mask／共享 QK；小 shape 单独优化首包与初始化
+FwdH 后续：评估 right GM 往返和新的产物路径
+第二候选：Prepare 严格下三角、Stage3 数据链和首次跨 pack 交接
+第三候选：合并 vb/kbg 公共流程，减少 S5/S7 重复搬运
+后续局部：FwdO Mask、V_new 深预取与剩余组边界；小 shape 单独优化首包
 ```
 
 一句话概括：**512 的采集表观瓶颈是 Prepare；8960 剔除 159.800 µs 尾跳变后，FwdH 校正为 144.133 µs、占 58.2%，仍是首要结构优化候选。Prepare 应优化 Stage3 与交接，现有证据不支持“KKT MMAD 算力已打满”；校正值仍需 Guard 修复重采和无 timer A/B 最终确认。**
