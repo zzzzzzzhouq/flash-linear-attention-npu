@@ -82,17 +82,19 @@ o  ← qᵀ · S                            ← 读状态
 
 **Prepare**（AIC:AIV = 1:2）
 
-| 步骤  | 单元 | 计算                                                        |
-| --- | -- | --------------------------------------------------------- |
-| S0+S1 | V  | 常驻辅助（单位阵/索引/清零）；k̂ = L2Norm(k) 传 L1；g′/β 准备              |
-| S2    | C  | KKT = k̂·k̂ᵀ                                                |
-| S3    | V  | G = exp\*(g_i−g_j)；L = KKT⊙G 取严格下三角；切出两个 32×32 对角块送 L1    |
-| S4    | C  | Y = I + LeafLeft·(−L)（求逆第一步）                              |
-| S5    | C  | A = LeafLeft + Y·LeafRight = (I+L)⁻¹                      |
-| S6    | V  | vb = v·β，kbg = k̂·β·exp\*(g′)（与 S4/S5 并行）               |
-| S7    | C  | W = A·kbg，U = A·vb                                       |
+| 步骤 | 单元 | 计算与重叠关系 |
+| --- | -- | --- |
+| S0+S1A | V | 常驻辅助（单位阵/索引/清零）；k̂ = L2Norm(k) 上传 L1，随后 notify AIC |
+| S1B | V | 准备 g′/β；不等 KKT，与 S2 重叠 |
+| S2 | C | 等 k̂ 就绪后算 KKT = k̂·k̂ᵀ |
+| S3A | V | G = exp\*(g_i−g_j)；不等 KKT，与 S2 重叠 |
+| S3B | V | 等 KKT 后算 L = KKT⊙G，取严格下三角并切出两个 32×32 对角块送 L1 |
+| S4 | C | 先做不依赖 S3 的 `S4_PREFILL I@I`，再算 Y = I + LeafLeft·(−L)；ACC(t) 与 DUMP(t−1) 重叠 |
+| S5 | C | A = LeafLeft + Y·LeafRight = (I+L)⁻¹ |
+| S6 | V | vb = v·β，kbg = k̂·β·exp\*(g′)，与 S4/S5 并行 |
+| S7 | C | W = A·kbg，U = A·vb；W/U 留 UB，下一 pack 的 S3B 后由 `S7_DRAIN` 写回 GM |
 
-**FwdH**（每块 C1→V1→C2→V2，块间串行）
+**FwdH**（同 head 每块 C1→V1→C2→V2，块间由状态依赖串行）
 
 | 步骤 | 单元 | 计算                                       |
 | -- | -- | ---------------------------------------- |
@@ -101,15 +103,22 @@ o  ← qᵀ · S                            ← 读状态
 | C2 | C  | h = kᵀ·v_update（本块真正写进记忆的部分）              |
 | V2 | V  | S ← 衰减⊙S + h（置 H 就绪，下一块才能开始）             |
 
-**FwdO**（每块五步）
+W/K 双 bank 的 GM→L1 预取与当前 C2 重叠，U/g 双 bank 预取与当前 V1 重叠；FP32 state 常驻 AIV UB。
+首个无初态 chunk 跳过 P；不请求 final state 时，最后 chunk 跳过 C2/V2，只产出当前 h 和 v_new。
 
-| 步骤 | 单元 | 计算                                             |
-| -- | -- | ---------------------------------------------- |
-| V1 | V  | 准备衰减因子 exp\*(g)                               |
-| C1 | C  | 两个矩阵乘：attn = q·kᵀ（块内）+ O_s = q·h（块间）           |
-| V2 | V  | 因果掩码 tril + 衰减 → A′；O_s′ = exp(g)·O_s          |
-| C3 | C  | O_l = A′·v_new（块内项）                            |
-| V3 | V  | o = scale·(O_s′ + O_l)，FP32 融合后转 BF16 写回         |
+**FwdO**（每个 group task 五步）
+
+| 步骤 | 单元 | 计算与重叠关系 |
+| -- | -- | --- |
+| V1 | V | 准备衰减因子 exp\*(g)，与 C1 并行 |
+| C1a | C | attn = q·kᵀ；每个 HV 都计算，同 HK 的 HV 仅复用已载入 L1 的 Q/K 输入 |
+| C1b | C | O_s = q·h；每个 HV 都要计算 |
+| V2 | V | 因果掩码 tril + 衰减 → A′；O_s′ = exp(g)·O_s |
+| C3 | C | O_l = A′·v_new（块内项）；v_new 的 GM→L1 预取领先一个 V head |
+| V3 | V | o = scale·(O_s′ + O_l)，FP32 融合后转 BF16 写回 |
+
+跨组时，下一组独立的 Q/K/H 先下发 GM→L1，可与上一组 V3 收尾重叠；随后才等待上一组 V3 的组令牌，
+再让 C1 使用 L0/UB。这里的“下一组”是本核跨步领取的下一 group task，不保证就是下一个 chunk。
 
 ---
 
@@ -142,16 +151,14 @@ o  ← qᵀ · S                            ← 读状态
 
 > **这张流水图能看什么、不能看什么（重要）**
 >
-> 每个核的 cycle 计数器是**各自独立**的，AIC 和 AIV 之间没有共同时钟；而且打点记录的是"下发"时刻，
-> 不是"算完"时刻。所以两条 lane 的**横向位置差 3–4us 不可信**——图上"AIC 的 KKT 画在 AIV 的
-> K_UPLOAD 之前"是正常的，不代表依赖错了。
+> 本图是按当前代码中的调用顺序、异步下发位置和 `READY/FREE` 依赖绘制的**结构示意图**，
+> 不是按实测耗时缩放的时间轴。横向块宽不代表时长；跨 lane 的重叠来自代码结构，不能从图上读性能收益。
 >
-> **可信的**：每段的**宽度**（这段发了多久）、每条 lane 的**占空比**（有多少时间在窗口内）、
-> **同一 lane 内**的先后顺序、以及核间均衡度（max vs med）。
+> 红色箭头表示真正串行化生产者和消费者的 flag；虚线条带表示下一块、下一包或下一组的提前工作。
+> 判断“谁能和谁重叠”，要看等待放在什么指令之前、什么指令之后，而不是只看阶段名字。
 >
-> **不可信的**：同一时刻"谁在跑、谁在等"；两条 lane 谁先谁后；cube 和 vector 的重叠程度。
-> 想判断"谁在等谁"，看每段的**未覆盖比例**和产消配对（`S1_NOTIFY` ↔ `S2_WAIT_S1`），
-> 不要看时间轴上谁在上面。
+> 对照 timer / MindStudio Insight 时，必须使用一致的时钟校准口径。timer 记录的是指令下发或事件经过，
+> 不等于对应 pipe 已完成，更不等于 pipe 在整个窗口内持续忙碌；因此不能单凭原始段宽推断硬件占用率。
 
 ---
 
@@ -245,9 +252,9 @@ o  ← qᵀ · S                            ← 读状态
 | 块内项 O_l = A′·v_new | `O_C3_ATTNV`   | 0.04 | 202 | 3.9%      |
 | **未覆盖（接力 + 组边界）**    | —              | —    | —   | **90.2%** |
 
-> QK 只有 101 次，是因为它**按 key head 算**：`attn = q·kᵀ` 与 value head 无关，
-> 同一 HK 下的多个 HV（G = 2）共用一份结果，所以 4 个 head 的组里只发 2 次。
-> QH 和 ATTN_V 依赖每个 value head 自己的 h / v_new，必须逐 head 算。
+> 上述 101/202 是旧采集的打点计数口径。当前 `main` 中，`loadQK` 只让 HK owner 载入 Q/K，
+> 同 HK 的 HV 复用 L1 输入；`QkTileMmad` 在 `if (loadQK)` 之外，QK、QH 和 ATTN_V 都逐 HV 执行，
+> 不能把旧计数解释成当前实现少算了一半 QK。
 
 **AIV lane（每核 101 次调用）**
 
@@ -324,10 +331,10 @@ Prepare 的 Cube 段只占 3–9%，FwdH/FwdO 的 MMAD 合计不到 0.2us/call�
 
 #### ② FwdO 预取提前 + 组边界解耦（20–40us）
 
-- **现象**：81.4% 时间在窗口外；组边界是串行点（下一组的 C1 要等本组所有 head 的 V3）。
-- **依据**：v_new 的预取已经领先一个 head，但还不够——组尾的 V3 收尾时，
-  下一组的 QK 其实已经可以开始，只是被缓冲复用挡住。
-- **动作**：v_new 预取再提前一个 head；组边界只保留"缓冲复用必需"的那一次等待。
+- **现象**：81.4% 时间在窗口外；组边界仍是串行点（下一组 C1 使用 L0/UB 前，要等本组所有 head 的 V3）。
+- **依据**：当前实现已把下一组独立 Q/K/H 的 GM→L1 放到组令牌等待之前，但 QK/QH 的 L1→L0/MMAD
+  仍在等待之后；v_new 预取已领先一个 head。因此可继续解耦的是计算资源和输出收尾，不是重复添加输入预取。
+- **动作**：评估 v_new 再提前一个 head；组边界只保留"缓冲复用必需"的等待，并缩短其覆盖范围。
 - **预期**：20–40us。
 - **风险**：低–中。主要是正确性：提前复用缓冲会踩数据，需要把 READY/FREE 配平。
 
@@ -489,8 +496,8 @@ GM 合计 **80KB**；VF 只有 0.06us。
 | 4  | S0        | `S0_AUX`    | AIV     | 常驻辅助：清零 4 个 leaf 槽 + AIV0 画单位阵  |
 | 5  | S1-pre    | `S1_PRE_TAIL`        | AIV     | 尾块补零（仅 M<64 时执行）               |
 | 6  | S1a       | `S1A_KUPLOAD`        | AIV     | k̂ 归一化 + 上传 L1                  |
-| 7  | S1b       | `S1B_GATE_BETA`       | AIV     | g′ 累加 + β sigmoid              |
-| 8  | S1 尾      | `S1_NOTIFY`       | AIV     | 通知 Cube 可以算 KKT（跨核时间校准锚点）      |
+| 7  | S1-notify | `S1_NOTIFY`       | AIV     | k̂ 就绪后立即通知 Cube，不等 S1B           |
+| 8  | S1b       | `S1B_GATE_BETA`       | AIV     | g′ 累加 + β sigmoid              |
 | 9  | S2        | `S2_KKT`          | AIC     | KKT = k̂·k̂ᵀ 的 MMAD 下发           |
 | 10 | S3a       | `S3A_GATE`        | AIV     | G = exp\*(g_i−g_j) + I_vcs 拷贝   |
 | 11 | S3b       | `S3B_EPI`         | AIV     | L = KKT⊙G 取严格下三角 + 打包 + 送 L1    |
@@ -504,7 +511,8 @@ GM 合计 **80KB**；VF 只有 0.06us。
 | 19 | S7b       | `S7_U`         | AIC     | U = A·vb 下发                     |
 | 20 | 下一包       | `S7_DRAIN`        | AIV     | W/U 回写 GM                       |
 
-> 并行关系：S6（AIV）与 S4/S5（AIC）同时跑，S7 等 S6 与 S5 都完成。
+> 并行关系：S1B、S3A 都不等 KKT，可与 S2 重叠；`S4_PREFILL` 不等 S3；S4 的 ACC(t) 与 DUMP(t−1) 重叠；
+> S6（AIV）与 S4/S5（AIC）同时跑，S7 等 S6 与 S5 都完成。
 >
 > 等待项（只包已有同步，用来对齐生产/消费）：AIC 侧 `S2_WAIT_S1`、`S4_WAIT_S3`、`S7_WAIT_S6`；
 > AIV 侧 `S1_WAIT_S4`、`S3B_WAIT_KKT`。
@@ -519,20 +527,23 @@ GM 合计 **80KB**；VF 只有 0.06us。
 | 4 | C2  | `H_C2_KV`    | AIC | h = kᵀ·v_new 的 MMAD 下发          |
 | 5 | V2  | `H_V2_STATE`    | AIV | S ← 衰减⊙S + h（置 H 就绪）           |
 
-> 这五步每 chunk 一轮，块间串行；C0 是给下一块准备的，和本轮 C1 重叠。
+> 同 head 的块间由状态依赖串行。W/K 双 bank 预取与当前 C2 重叠，U/g 双 bank 预取与当前 V1 重叠；
+> 首个无初态 chunk 跳过 P，不请求 final state 时尾块跳过 C2/V2。
 
 ### C.3 FwdO：V1 → C1a → C1b → V2 → C3 → V3
 
 | # | 阶段  | 打点             | 单元  | 量的是什么                          |
 | - | --- | -------------- | --- | ------------------------------ |
 | 1 | V1  | `O_V1_GATE`     | AIV | 衰减因子 exp\*(g)                   |
-| 2 | C1a | `O_C1A_QK`       | AIC | attn = q·kᵀ 的 MMAD 下发           |
-| 3 | C1b | `O_C1B_QH`       | AIC | O_s = q·h 的 MMAD 下发             |
+| 2 | C1a | `O_C1A_QK`       | AIC | attn = q·kᵀ；逐 HV 计算，同 HK 仅复用 Q/K 输入 |
+| 3 | C1b | `O_C1B_QH`       | AIC | O_s = q·h；逐 HV 计算                |
 | 4 | V2  | `O_V2_MASK`     | AIV | tril + 衰减 → A′；O_s′             |
 | 5 | C3  | `O_C3_ATTNV`   | AIC | O_l = A′·v_new 的 MMAD 下发        |
 | 6 | V3  | `O_V3_OUTPUT`   | AIV | o = scale·(O_s′ + O_l)          |
 
-> V1 与 C1a/C1b 是并行的（C1 不等 gate）；V2 → C3 → V3 是逐 head 接力。
+> V1 与 C1a/C1b 并行（C1 不等 gate）；V2 → C3 → V3 逐 head 接力。
+> 下一组 Q/K/H 的 GM→L1 在等上一组 V3 组令牌之前下发；等待只约束后续 L0/UB 使用。
+> C→V 的 attn/O_s/O_l 走 Fixpipe L0C→AIV UB，V→C 的 A′ 走 AIV UB→L1。
 
 ### C.4 公共项：固定项 + 搬运等待
 
@@ -565,7 +576,7 @@ GM 合计 **80KB**；VF 只有 0.06us。
 | `H_C0_PREFETCH`                 | 2 / chunk | W 和 kg 两个调用点                                         |
 | `H_C1_WH` / `KV_MM`          | 4 / chunk | 每个 head 调一次（一个 work unit 最多 4 个 head）                |
 | `H_V1_VNEW` / `STATE`           | 2 / chunk | 每个 AIV 只负责其中 2 个 head                               |
-| `O_C1A_QK` / `QH` / `ATTN_V`     | QK 2 / 组；QH、ATTN_V 各 4 / 组 | QK 按 HK 算（同组 HV 共用），另两个按 head 算 |
+| `O_C1A_QK` / `QH` / `ATTN_V`     | 旧采集：QK 2 / 组；QH、ATTN_V 各 4 / 组 | 当前 main 三者均逐 HV；仅 Q/K 输入按 HK 复用 |
 | `O_V1_GATE` / `MASK` / `OUTPUT` | 2 / chunk / AIV | `taskGroupSize = 4`，两个 AIV 各分 2 个 head               |
 | `MTE2` / `MTE3`                | 多段        | 多个 wait 点共用一个名字，按时间先后依次记录                            |
 
