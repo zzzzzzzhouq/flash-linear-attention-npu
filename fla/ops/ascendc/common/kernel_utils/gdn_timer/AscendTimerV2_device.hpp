@@ -1,6 +1,7 @@
 #ifndef ASCEND_TIMER_DEVICE_H
 #define ASCEND_TIMER_DEVICE_H
 
+#include "kernel_operator.h"
 #include "AscendTimerV2.hpp"
 #include <type_traits>
 
