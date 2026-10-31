@@ -89,7 +89,7 @@ def run_six_aclnn_core(
         chunk_size=chunk_size,
     )
     if cu_list is None:
-        a = ascendc.solve_tri(a_raw.to(q.dtype), layout="bhtd")
+        a = ascendc.solve_tri(a_raw.to(q.dtype), layout="bnsd")
     else:
         a_token_first = a_raw.transpose(1, 2).contiguous().squeeze(0)
         a_token_first = ascendc.solve_tri(
