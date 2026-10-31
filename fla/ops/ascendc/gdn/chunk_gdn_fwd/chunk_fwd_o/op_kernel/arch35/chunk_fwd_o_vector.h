@@ -249,10 +249,12 @@ public:
     static constexpr uint32_t BANK_COUNT_2 = CHUNK_FWD_O_STREAM_BANK_COUNT;
 
     __aicore__ inline ChunkFwdOA5VectorProcess(GM_ADDR q, GM_ADDR k, GM_ADDR v, GM_ADDR h, GM_ADDR g,
-                                               GM_ADDR cuSeqlens, GM_ADDR chunkOffsets, GM_ADDR o, GM_ADDR workspace)
+                                               GM_ADDR cuSeqlens, GM_ADDR chunkOffsets, GM_ADDR o, GM_ADDR workspace,
+                                               GM_ADDR timer)
         : q_(q), k_(k), v_(v), h_(h), g_(g), cuSeqlens_(cuSeqlens), chunkOffsets_(chunkOffsets), o_(o)
     {
         (void)workspace;
+        timer_.Init(timer);
     }
 
     __aicore__ inline void Init(const ChunkFwdOTilingData &tiling, TPipe *pipe)
@@ -328,6 +330,8 @@ public:
                                                          ChunkFwdOAPrimeBf16Offset(streamSlot_));
                     Catlass::Arch::CrossCoreWaitFlag(cubeToVecFlag_);
                     WaitFlag<HardEvent::MTE3_V>(mte3ToVStream_[streamSlot_]);
+                    const int timerIter = timerIters_[AscendTimer::O_V2_MASK]++;
+                    TIMER_BLOCK(timer_.TikNoBarrier(AscendTimer::O_V2_MASK, timerIter));
                     if (loc.chunkLen == bt) {
                         AscendC::VF_CALL<Stage3Gate64VF<true>>(
                             reinterpret_cast<__ubuf__ bfloat16_t *>(aPrimeBf16.GetPhyAddr()),
@@ -347,6 +351,8 @@ public:
                     }
                     SetFlag<HardEvent::V_MTE3>(vToMte3Stream_[streamSlot_]);
                     WaitFlag<HardEvent::V_MTE3>(vToMte3Stream_[streamSlot_]);
+                    TIMER_BLOCK(timer_.TokNoBarrier(AscendTimer::O_V2_MASK, timerIter));
+                    TIMER_BLOCK(timer_.setDynamicActualIter(AscendTimer::O_V2_MASK, timerIter + 1));
 
                     LocalTensor<bfloat16_t> l1APrime =
                         resource_.l1Buf.template GetBufferByByte<bfloat16_t>(
@@ -388,6 +394,8 @@ public:
                     ubBuf_.GetWithOffset<bfloat16_t>(bt * vDim, ChunkFwdOOlOffset(streamSlot_));
                 WaitFlag<HardEvent::MTE3_V>(mte3ToVStream_[streamSlot_]);
                 PipeBarrier<PIPE_V>();
+                const int timerIter = timerIters_[AscendTimer::O_V3_OUTPUT]++;
+                TIMER_BLOCK(timer_.TikNoBarrier(AscendTimer::O_V3_OUTPUT, timerIter));
                 AscendC::VF_CALL<Stage5Fuse64VF>(
                     reinterpret_cast<__ubuf__ bfloat16_t *>(oOut.GetPhyAddr()),
                     reinterpret_cast<__ubuf__ float *>(oSPrime.GetPhyAddr()),
@@ -395,6 +403,8 @@ public:
                     static_cast<uint16_t>(loc.chunkLen));
                 SetFlag<HardEvent::V_MTE3>(vToMte3Event_[streamSlot_]);
                 WaitFlag<HardEvent::V_MTE3>(vToMte3Event_[streamSlot_]);
+                TIMER_BLOCK(timer_.TokNoBarrier(AscendTimer::O_V3_OUTPUT, timerIter));
+                TIMER_BLOCK(timer_.setDynamicActualIter(AscendTimer::O_V3_OUTPUT, timerIter + 1));
                 const int64_t oOffset = ChunkFwdOOOffset(tiling_, loc, hv);
                 DataCopyExtParams outputCopyParams{
                     static_cast<uint16_t>(loc.chunkLen),
@@ -440,6 +450,8 @@ public:
 
     __aicore__ inline void ComputeStage1Gate(const ChunkFwdOChunkLoc &loc, uint32_t localSlot, uint32_t streamSlot)
     {
+        const int timerIter = timerIters_[AscendTimer::O_V1_GATE]++;
+        TIMER_BLOCK(timer_.TikNoBarrier(AscendTimer::O_V1_GATE, timerIter));
         const uint32_t bt = static_cast<uint32_t>(CHUNK_FWD_O_A5_BT);
         const uint32_t gScratchOff = ChunkFwdOGScratchOffset(streamSlot);
 
@@ -470,6 +482,8 @@ public:
             (__ubuf__ float *)gateA.GetPhyAddr(), (__ubuf__ float *)gFp32.GetPhyAddr(),
             static_cast<uint16_t>(loc.chunkLen));
         PipeBarrier<PIPE_V>();
+        TIMER_BLOCK(timer_.TokNoBarrier(AscendTimer::O_V1_GATE, timerIter));
+        TIMER_BLOCK(timer_.setDynamicActualIter(AscendTimer::O_V1_GATE, timerIter + 1));
     }
 
 private:
@@ -494,6 +508,8 @@ private:
     TEventID vToMte3Event_[BANK_COUNT_2];
     Catlass::Arch::CrossCoreFlag vecToCubeFlag_{CHUNK_FWD_O_VEC_TO_CUBE_READY_FLAG};
     Catlass::Arch::CrossCoreFlag cubeToVecFlag_{CHUNK_FWD_O_CUBE_TO_VEC_READY_FLAG};
+    AscendTimerDevice timer_{};
+    int timerIters_[AscendTimer::DYNAMIC_TYPE_COUNT] = {};
 };
 
 } // namespace GDN

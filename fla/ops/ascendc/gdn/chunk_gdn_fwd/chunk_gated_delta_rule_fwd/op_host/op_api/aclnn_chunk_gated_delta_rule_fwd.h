@@ -50,6 +50,45 @@ ACLNN_API aclnnStatus aclnnChunkGatedDeltaRuleFwd(
     aclOpExecutor *executor,
     aclrtStream stream);
 
+/** Diagnostic-only GDN forward ABI with three kernel-local timer slices. */
+ACLNN_API aclnnStatus aclnnChunkGatedDeltaRuleFwdProfileGetWorkspaceSize(
+    const aclTensor *q,
+    const aclTensor *k,
+    const aclTensor *v,
+    const aclTensor *g,
+    const aclTensor *beta,
+    const aclTensor *aLogOptional,
+    const aclTensor *dtBiasOptional,
+    const aclTensor *initialStateOptional,
+    const aclIntArray *cuSeqlensOptional,
+    const aclIntArray *chunkIndicesOptional,
+    const char *layout,
+    double scale,
+    int64_t chunkSize,
+    bool useExp2,
+    bool useQkL2norm,
+    bool allowNegEigval,
+    bool stateVFirst,
+    const aclTensor *oOut,
+    const aclTensor *finalStateOutOptional,
+    const aclTensor *qHatOutOptional,
+    const aclTensor *kHatOutOptional,
+    const aclTensor *qRstdOutOptional,
+    const aclTensor *kRstdOutOptional,
+    const aclTensor *betaEffOutOptional,
+    const aclTensor *gCumsumOutOptional,
+    const aclTensor *aOutOptional,
+    const aclTensor *hOutOptional,
+    const aclTensor *timer,
+    uint64_t *workspaceSize,
+    aclOpExecutor **executor);
+
+ACLNN_API aclnnStatus aclnnChunkGatedDeltaRuleFwdProfile(
+    void *workspace,
+    uint64_t workspaceSize,
+    aclOpExecutor *executor,
+    aclrtStream stream);
+
 #ifdef __cplusplus
 }
 #endif

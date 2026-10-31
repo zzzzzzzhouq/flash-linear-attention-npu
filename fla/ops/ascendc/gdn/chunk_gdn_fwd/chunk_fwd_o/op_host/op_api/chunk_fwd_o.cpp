@@ -33,7 +33,8 @@ const std::array<const aclTensor *, 1> ChunkFwdO(
     bool stateVFirst,
     const char *outputLayout,
     const aclTensor *oOut,
-    aclOpExecutor *executor)
+    aclOpExecutor *executor,
+    const aclTensor *timer)
 {
     L0_DFX(ChunkFwdO, q, k, v, h, g, cuSeqlensOptional, chunkOffsetsOptional, scale, chunkSize, useExp2, stateVFirst,
            outputLayout, oOut);
@@ -60,7 +61,7 @@ const std::array<const aclTensor *, 1> ChunkFwdO(
 
     std::string outputLayoutStr(outputLayout == nullptr ? "BNSD" : outputLayout);
     auto ret = ADD_TO_LAUNCHER_LIST_AICORE(ChunkFwdO,
-        OP_INPUT(q, k, v, h, g, actualCuSeqlens, actualChunkOffsets),
+        OP_INPUT(q, k, v, h, g, actualCuSeqlens, actualChunkOffsets, timer),
         OP_OUTPUT(oOut),
         OP_ATTR(scale, chunkSize, useExp2, stateVFirst, outputLayoutStr));
     if (ret != ACLNN_SUCCESS) {

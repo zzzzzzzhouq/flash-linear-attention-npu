@@ -27,7 +27,8 @@ const std::array<const aclTensor *, 1> ChunkFwdO(
     bool stateVFirst,
     const char *outputLayout,
     const aclTensor *oOut,
-    aclOpExecutor *executor);
+    aclOpExecutor *executor,
+    const aclTensor *timer = nullptr);
 }
 
 #endif

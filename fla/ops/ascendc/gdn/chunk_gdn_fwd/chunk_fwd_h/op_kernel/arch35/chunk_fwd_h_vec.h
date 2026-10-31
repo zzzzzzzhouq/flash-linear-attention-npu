@@ -338,6 +338,7 @@ class ChunkFwdHVecArch35 {
 public:
     __aicore__ inline void Init(const FwdHKernelArgs &args)
     {
+        timer_.Init(args.timer);
         args_ = args;
         coreIdx_ = AscendC::GetBlockIdx() / AscendC::GetSubBlockNum();
         coreNum_ = AscendC::GetBlockNum();
@@ -587,11 +588,15 @@ private:
         // S-1：H0=cast_BF16(initial_state)。输入输出保持 state_v_first 指定的物理顺序。
         const uint32_t slot = head.localSlot;
         AscendC::WaitFlag<AscendC::HardEvent::MTE2_V>(IoReadyEvent(slot));
+        const int timerIter = timerIters_[AscendTimer::H_V0_CAST]++;
+        TIMER_BLOCK(timer_.TikNoBarrier(AscendTimer::H_V0_CAST, timerIter));
         AscendC::VF_CALL<FwdHSMinusOneArch35Vf>(
             reinterpret_cast<__ubuf__ float *>(SminusStateSlot(slot).GetPhyAddr()),
             reinterpret_cast<__ubuf__ bfloat16_t *>(SminusHSlot(slot).GetPhyAddr()));
         AscendC::SetFlag<AscendC::HardEvent::V_MTE3>(IoDoneEvent(slot));
         AscendC::WaitFlag<AscendC::HardEvent::V_MTE3>(IoDoneEvent(slot));
+        TIMER_BLOCK(timer_.TokNoBarrier(AscendTimer::H_V0_CAST, timerIter));
+        TIMER_BLOCK(timer_.setDynamicActualIter(AscendTimer::H_V0_CAST, timerIter + 1));
         AscendC::GlobalTensor<bfloat16_t> h;
         h.SetGlobalBuffer(reinterpret_cast<__gm__ bfloat16_t *>(args_.h));
         const FwdHChunkSpan firstChunk = FwdHBuildChunk(unit.sequence, 0);
@@ -648,6 +653,8 @@ private:
         } else {
             AscendC::WaitFlag<AscendC::HardEvent::MTE2_V>(IoReadyEvent(slot));
         }
+        const int timerIter = timerIters_[AscendTimer::H_V1_VALUE]++;
+        TIMER_BLOCK(timer_.TikNoBarrier(AscendTimer::H_V1_VALUE, timerIter));
         using PType = std::conditional_t<CompilePolicy::STATE_FP32, float, bfloat16_t>;
         __ubuf__ PType *p = reinterpret_cast<__ubuf__ PType *>(LocalSlot(slot).GetPhyAddr());
         __ubuf__ bfloat16_t *right = reinterpret_cast<__ubuf__ bfloat16_t *>(RightSlot(slot).GetPhyAddr());
@@ -698,6 +705,8 @@ private:
             AscendC::SetFlag<AscendC::HardEvent::V_MTE3>(IoDoneEvent(slot));
             AscendC::WaitFlag<AscendC::HardEvent::V_MTE3>(IoDoneEvent(slot));
         }
+        TIMER_BLOCK(timer_.TokNoBarrier(AscendTimer::H_V1_VALUE, timerIter));
+        TIMER_BLOCK(timer_.setDynamicActualIter(AscendTimer::H_V1_VALUE, timerIter + 1));
         AscendC::DataCopy(vNew[UOffset(unit, chunk, head)], WorkBf16Slot(inputSlot),
                           chunk.validTokens * FWD_H_V);
         if constexpr (WRITE_RIGHT) {
@@ -874,6 +883,8 @@ private:
             // 直接消费 Stage1 已驻留的 stateBf16，不能等待不存在的 event credit。
             AscendC::WaitFlag<AscendC::HardEvent::MTE2_V>(IoReadyEvent(slot));
         }
+        const int timerIter = timerIters_[AscendTimer::H_V2_STATE]++;
+        TIMER_BLOCK(timer_.TikNoBarrier(AscendTimer::H_V2_STATE, timerIter));
         __ubuf__ float *d = reinterpret_cast<__ubuf__ float *>(LocalSlot(slot).GetPhyAddr());
         __ubuf__ bfloat16_t *hNext = nullptr;
         if constexpr (CompilePolicy::STATE_FP32) {
@@ -915,6 +926,8 @@ private:
         h.SetGlobalBuffer(reinterpret_cast<__gm__ bfloat16_t *>(args_.h));
         AscendC::SetFlag<AscendC::HardEvent::V_MTE3>(IoDoneEvent(slot));
         AscendC::WaitFlag<AscendC::HardEvent::V_MTE3>(IoDoneEvent(slot));
+        TIMER_BLOCK(timer_.TokNoBarrier(AscendTimer::H_V2_STATE, timerIter));
+        TIMER_BLOCK(timer_.setDynamicActualIter(AscendTimer::H_V2_STATE, timerIter + 1));
         if constexpr (WRITE_H) {
             if constexpr (CompilePolicy::STATE_FP32) {
                 if constexpr (!RESIDENT_FP32_STATE) {
@@ -1217,6 +1230,8 @@ private:
     // allocator 从 dynamicStartUB 分配 GetRuntimeUBSize()，保留 split-core AIV 的
     // 高端 8 KiB VF 栈，不假设运行时 UB 起始地址为 0。
     AscendC::LocalTensor<uint8_t> ub_{};
+    AscendTimerDevice timer_{};
+    int timerIters_[AscendTimer::DYNAMIC_TYPE_COUNT] = {};
 };
 
 } // namespace GDN

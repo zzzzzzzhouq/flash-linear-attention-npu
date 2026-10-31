@@ -67,10 +67,11 @@ public:
 
     __aicore__ inline ChunkFwdOA5CubeProcess(GM_ADDR q, GM_ADDR k, GM_ADDR v, GM_ADDR h, GM_ADDR g,
                                              GM_ADDR cuSeqlens, GM_ADDR chunkOffsets, GM_ADDR o,
-                                             GM_ADDR workspace)
+                                             GM_ADDR workspace, GM_ADDR timer)
         : q_(q), k_(k), v_(v), h_(h), g_(g), cuSeqlens_(cuSeqlens), chunkOffsets_(chunkOffsets), o_(o)
     {
         (void)workspace;
+        timer_.Init(timer);
     }
 
     __aicore__ inline void Init(const ChunkFwdOTilingData &tiling)
@@ -230,6 +231,8 @@ private:
         auto tensorL1APrime = tla::MakeTensor(l1APrime, layoutL1APrime, Catlass::Arch::PositionL1{});
         auto tensorL1V = tla::MakeTensor(l1V, layoutL1V, Catlass::Arch::PositionL1{});
         WaitFlag<HardEvent::MTE2_MTE1>(vEvent);
+        const int timerIter = timerIters_[AscendTimer::O_C3_ATTNV]++;
+        TIMER_BLOCK(timer_.TikNoBarrier(AscendTimer::O_C3_ATTNV, timerIter));
 
         const uint32_t avASlot = l0ASlot_;
         const uint32_t avBSlot = l0BSlot_;
@@ -298,6 +301,8 @@ private:
         CopyOlToUb copyOlToUb;
         SetFlag<HardEvent::M_FIX>(avCSlot);
         WaitFlag<HardEvent::M_FIX>(avCSlot);
+        TIMER_BLOCK(timer_.TokNoBarrier(AscendTimer::O_C3_ATTNV, timerIter));
+        TIMER_BLOCK(timer_.setDynamicActualIter(AscendTimer::O_C3_ATTNV, timerIter + 1));
         copyOlToUb(tensorOlUb, olTile, static_cast<uint8_t>(ownerSubBlock), 0);
         SetFlag<HardEvent::FIX_M>(avCSlot);
 
@@ -370,6 +375,8 @@ private:
         if (loadQK) {
             WaitFlag<HardEvent::MTE2_MTE1>(qkEvent);
         }
+        const int qkTimerIter = timerIters_[AscendTimer::O_C1_QK]++;
+        TIMER_BLOCK(timer_.TikNoBarrier(AscendTimer::O_C1_QK, qkTimerIter));
 
         // Move Q/K from L1 to L0 and launch Q @ K^T.
         const uint32_t qktASlot = l0ASlot_;
@@ -433,9 +440,13 @@ private:
         CopyQktToUb copyQktToUb;
         SetFlag<HardEvent::M_FIX>(qktCSlot);
         WaitFlag<HardEvent::M_FIX>(qktCSlot);
+        TIMER_BLOCK(timer_.TokNoBarrier(AscendTimer::O_C1_QK, qkTimerIter));
+        TIMER_BLOCK(timer_.setDynamicActualIter(AscendTimer::O_C1_QK, qkTimerIter + 1));
         copyQktToUb(tensorARawUb, qktTile, static_cast<uint8_t>(ownerSubBlock), 0);
         SetFlag<HardEvent::FIX_M>(qktCSlot);
         WaitFlag<HardEvent::MTE2_MTE1>(hEvent);
+        const int qhTimerIter = timerIters_[AscendTimer::O_C2_QH]++;
+        TIMER_BLOCK(timer_.TikNoBarrier(AscendTimer::O_C2_QH, qhTimerIter));
 
         // Move Q/H from L1 to L0 and compute Q @ H.
         const uint32_t qhASlot = l0ASlot_;
@@ -498,6 +509,8 @@ private:
         CopyQhToUb copyQhToUb;
         SetFlag<HardEvent::M_FIX>(qhCSlot);
         WaitFlag<HardEvent::M_FIX>(qhCSlot);
+        TIMER_BLOCK(timer_.TokNoBarrier(AscendTimer::O_C2_QH, qhTimerIter));
+        TIMER_BLOCK(timer_.setDynamicActualIter(AscendTimer::O_C2_QH, qhTimerIter + 1));
         copyQhToUb(tensorOSRawUb, qhTile, static_cast<uint8_t>(ownerSubBlock), 0);
         SetFlag<HardEvent::FIX_M>(qhCSlot);
 
@@ -527,6 +540,8 @@ private:
     uint32_t l0ASlot_ = 0U;
     uint32_t l0BSlot_ = 0U;
     uint32_t l0CSlot_ = 0U;
+    AscendTimerDevice timer_{};
+    int timerIters_[AscendTimer::DYNAMIC_TYPE_COUNT] = {};
 };
 
 } // namespace GDN

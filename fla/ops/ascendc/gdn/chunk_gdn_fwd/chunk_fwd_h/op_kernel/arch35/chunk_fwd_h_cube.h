@@ -31,6 +31,7 @@ class ChunkFwdHCubeArch35 {
 public:
     __aicore__ inline void Init(const FwdHKernelArgs &args)
     {
+        timer_.Init(args.timer);
         args_ = args;
         coreIdx_ = AscendC::GetBlockIdx();
         coreNum_ = AscendC::GetBlockNum();
@@ -382,6 +383,8 @@ private:
         AscendC::WaitFlag<AscendC::HardEvent::MTE2_MTE1>(HRightDoneEvent(hSlot));
         AscendC::WaitFlag<AscendC::HardEvent::M_MTE1>(L0AFreeEvent(pipelineSlot));
         AscendC::WaitFlag<AscendC::HardEvent::M_MTE1>(L0BFreeEvent(pipelineSlot));
+        const int timerIter = timerIters_[AscendTimer::H_C1_WH]++;
+        TIMER_BLOCK(timer_.TikNoBarrier(AscendTimer::H_C1_WH, timerIter));
         CopyL1ToL0AS0 copyA;
         CopyL1ToL0BS0 copyB;
         copyA(tensorL0A, tla::GetTile(tensorL1W, tla::MakeCoord(0, 0), tla::MakeShape(m, FWD_H_K)));
@@ -420,6 +423,8 @@ private:
                 FwdHAicPeerFlag(FWD_H_D_FREE_FLAG, DataSlot(head), head.aiv));
         }
         AscendC::WaitFlag<AscendC::HardEvent::M_FIX>(FixDoneEvent(pipelineSlot));
+        TIMER_BLOCK(timer_.TokNoBarrier(AscendTimer::H_C1_WH, timerIter));
+        TIMER_BLOCK(timer_.setDynamicActualIter(AscendTimer::H_C1_WH, timerIter + 1));
         AscendC::LocalTensor<PType> pUb = UbBuffer()[
             FwdHLocalSlotBase(DataSlot(head))].template ReinterpretCast<PType>();
         auto ubLayout = tla::MakeLayout<PType, LayoutOutput>(m, FWD_H_V);
@@ -558,6 +563,8 @@ private:
             AscendC::WaitFlag<AscendC::HardEvent::MTE2_MTE1>(WDoneEvent(binding.slot));
         }
         AscendC::WaitFlag<AscendC::HardEvent::MTE2_MTE1>(HRightDoneEvent(hSlot));
+        const int timerIter = timerIters_[AscendTimer::H_C2_KG_RIGHT]++;
+        TIMER_BLOCK(timer_.TikNoBarrier(AscendTimer::H_C2_KG_RIGHT, timerIter));
         CopyL1ToL0AS2 copyA;
         CopyL1ToL0BS2 copyB;
         if constexpr (STATE_V_FIRST) {
@@ -618,6 +625,8 @@ private:
                 FwdHAicPeerFlag(FWD_H_P_FREE_FLAG, DataSlot(head), head.aiv));
         }
         AscendC::WaitFlag<AscendC::HardEvent::M_FIX>(FixDoneEvent(pipelineSlot));
+        TIMER_BLOCK(timer_.TokNoBarrier(AscendTimer::H_C2_KG_RIGHT, timerIter));
+        TIMER_BLOCK(timer_.setDynamicActualIter(AscendTimer::H_C2_KG_RIGHT, timerIter + 1));
         AscendC::LocalTensor<float> dUb =
             UbBuffer()[FwdHLocalSlotBase(DataSlot(head))].template ReinterpretCast<float>();
         auto ubLayout = tla::MakeLayout<float, LayoutOutput>(FWD_H_K, FWD_H_V);
@@ -790,6 +799,8 @@ private:
     uint32_t coreIdx_ = 0;
     uint32_t coreNum_ = 1;
     bool hasCubeWork_ = false;
+    AscendTimerDevice timer_{};
+    int timerIters_[AscendTimer::DYNAMIC_TYPE_COUNT] = {};
 };
 
 } // namespace GDN

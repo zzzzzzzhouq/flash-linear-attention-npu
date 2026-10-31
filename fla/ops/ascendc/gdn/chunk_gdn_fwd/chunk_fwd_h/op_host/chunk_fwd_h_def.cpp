@@ -73,6 +73,11 @@ public:
             .DataType(indexTypes).Format(formats).UnknownShapeFormat(formats)
             .AutoContiguous();
 
+        this->Input("timer")
+            .ParamType(OPTIONAL)
+            .DataType(indexTypes).Format(formats).UnknownShapeFormat(formats)
+            .AutoContiguous();
+
         this->Output("h")
             .ParamType(REQUIRED)
             .DataType(dataTypes).Format(formats).UnknownShapeFormat(formats);

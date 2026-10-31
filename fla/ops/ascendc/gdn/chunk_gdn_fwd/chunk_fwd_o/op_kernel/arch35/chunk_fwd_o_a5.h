@@ -29,8 +29,9 @@ class ChunkFwdOA5 {
 public:
     __aicore__ inline void Init(GM_ADDR q, GM_ADDR k, GM_ADDR v, GM_ADDR h, GM_ADDR g, GM_ADDR cuSeqlens,
                                 GM_ADDR chunkOffsets, GM_ADDR o, GM_ADDR workspace,
-                                const ChunkFwdOTilingData *tilingData)
+                                const ChunkFwdOTilingData *tilingData, GM_ADDR timer = nullptr)
     {
+        timer_ = timer;
         q_ = q;
         k_ = k;
         v_ = v;
@@ -53,14 +54,14 @@ public:
         if ASCEND_IS_AIV {
             AscendC::TPipe pipe;
             ChunkFwdOA5VectorProcess<GT, UseExp2> vector(q_, k_, v_, h_, g_, cuSeqlens_, chunkOffsets_, o_,
-                                                       workspace_);
+                                                       workspace_, timer_);
             vector.Init(tiling_, &pipe);
             vector.Process(aivCoreIdx, aivCoreNum);
             return;
         }
 
         if ASCEND_IS_AIC {
-            ChunkFwdOA5CubeProcess cube(q_, k_, v_, h_, g_, cuSeqlens_, chunkOffsets_, o_, workspace_);
+            ChunkFwdOA5CubeProcess cube(q_, k_, v_, h_, g_, cuSeqlens_, chunkOffsets_, o_, workspace_, timer_);
             cube.Init(tiling_);
             cube.Process(aicCoreIdx, aicCoreNum);
         }
@@ -76,16 +77,17 @@ private:
     GM_ADDR chunkOffsets_ = nullptr;
     GM_ADDR o_ = nullptr;
     GM_ADDR workspace_ = nullptr;
+    GM_ADDR timer_ = nullptr;
     ChunkFwdOTilingData tiling_{};
 };
 
 template <typename GT, bool UseExp2>
 __aicore__ inline void ChunkFwdOA5Dispatch(GM_ADDR q, GM_ADDR k, GM_ADDR v, GM_ADDR h, GM_ADDR g,
                                            GM_ADDR cuSeqlens, GM_ADDR chunkOffsets, GM_ADDR o, GM_ADDR workspace,
-                                           const ChunkFwdOTilingData *tilingData)
+                                           const ChunkFwdOTilingData *tilingData, GM_ADDR timer = nullptr)
 {
     ChunkFwdOA5<GT, UseExp2> op;
-    op.Init(q, k, v, h, g, cuSeqlens, chunkOffsets, o, workspace, tilingData);
+    op.Init(q, k, v, h, g, cuSeqlens, chunkOffsets, o, workspace, tilingData, timer);
     op.Process();
 }
 

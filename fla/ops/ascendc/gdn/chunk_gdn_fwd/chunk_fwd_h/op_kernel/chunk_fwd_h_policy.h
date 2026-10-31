@@ -10,6 +10,7 @@
 #include <cstdint>
 
 #include "kernel_operator.h"
+#include "../../../../common/kernel_utils/gdn_timer/AscendTimerV2_device.hpp"
 
 namespace GDN {
 
@@ -169,6 +170,7 @@ struct FwdHKernelArgs {
     GM_ADDR vNew = nullptr;
     GM_ADDR finalState = nullptr;
     GM_ADDR workspace = nullptr;
+    GM_ADDR timer = nullptr;
     FwdHRuntimeTiling tiling{};
 };
 

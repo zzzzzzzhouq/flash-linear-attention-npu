@@ -60,7 +60,8 @@ const std::array<const aclTensor *, 9> ChunkGatedDeltaRuleFwdPrepare(
     const aclTensor *qRstdOptional,
     const aclTensor *kRstdOptional,
     const aclTensor *betaEffOptional,
-    aclOpExecutor *executor)
+    aclOpExecutor *executor,
+    const aclTensor *timer)
 {
     const bool hasHats = qHatOptional != nullptr && kHatOptional != nullptr &&
                          qRstdOptional != nullptr && kRstdOptional != nullptr;
@@ -121,7 +122,7 @@ const std::array<const aclTensor *, 9> ChunkGatedDeltaRuleFwdPrepare(
 
     auto ret = ADD_TO_LAUNCHER_LIST_AICORE(
         ChunkGatedDeltaRuleFwdPrepare,
-        OP_INPUT(q, k, v, g, beta, aLogOptional, dtBiasOptional, actualCuSeqlens, actualChunkIndices),
+        OP_INPUT(q, k, v, g, beta, aLogOptional, dtBiasOptional, actualCuSeqlens, actualChunkIndices, timer),
         OP_OUTPUT(gOut, wOut, uOut, aOut, actualQHat, actualKHat, actualQRstd, actualKRstd, actualBetaEff),
         OP_ATTR(chunkSize, allowNegEigval, useExp2, useQkL2norm, useGateInKernel, useBetaSigmoid, outputA));
     if (ret != ACLNN_SUCCESS) {

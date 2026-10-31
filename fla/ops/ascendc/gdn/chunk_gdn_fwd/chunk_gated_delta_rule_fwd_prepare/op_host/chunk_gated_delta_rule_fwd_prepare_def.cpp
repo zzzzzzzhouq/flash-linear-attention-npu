@@ -45,6 +45,8 @@ public:
             .DataType(indexTypes).Format(formats).UnknownShapeFormat(formats).AutoContiguous();
         this->Input("chunk_indices").ParamType(OPTIONAL).ValueDepend(OPTIONAL)
             .DataType(indexTypes).Format(formats).UnknownShapeFormat(formats).AutoContiguous();
+        this->Input("timer").ParamType(OPTIONAL)
+            .DataType(indexTypes).Format(formats).UnknownShapeFormat(formats).AutoContiguous();
 
         this->Output("g_out").ParamType(REQUIRED).DataType(fp32Types).Format(formats)
             .UnknownShapeFormat(formats);

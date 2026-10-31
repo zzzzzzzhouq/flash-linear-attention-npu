@@ -15,6 +15,7 @@
 #define CHUNK_GATED_DELTA_RULE_FWD_PREPARE_H
 
 #include "kernel_operator.h"
+#include "../../../../../common/kernel_utils/gdn_timer/AscendTimerV2_device.hpp"
 #include "chunk_gated_delta_rule_fwd_prepare_common.h"
 #include "chunk_gated_delta_rule_fwd_prepare_vf.h"
 #include "chunk_gated_delta_rule_fwd_prepare_datacopy.h"
@@ -33,8 +34,9 @@ public:
     __aicore__ inline void Init(GM_ADDR q, GM_ADDR k, GM_ADDR v, GM_ADDR g, GM_ADDR beta, GM_ADDR aLog, GM_ADDR dtBias,
                                 GM_ADDR cu, GM_ADDR idx, GM_ADDR gOut, GM_ADDR wOut, GM_ADDR uOut, GM_ADDR aOut,
                                 GM_ADDR qHat, GM_ADDR kHat, GM_ADDR qRstd, GM_ADDR kRstd, GM_ADDR betaEff,
-                                GM_ADDR workspace, const Td &td)
+                                GM_ADDR workspace, GM_ADDR timer, const Td &td)
     {
+        timer_.Init(timer);
         LoadTiling(td);
         InitOnChip();
         GM_ADDR userWs = GetUserWorkspace(workspace);
@@ -360,6 +362,8 @@ public:
 
     __aicore__ inline void Stage1_GateAndBeta(const ChunkRange &chunk, int64_t hv, int64_t taskIdx)
     {
+        const int timerIter = timerIters_[AscendTimer::S1_BATE]++;
+        TIMER_BLOCK(timer_.TikNoBarrier(AscendTimer::S1_BATE, timerIter));
         const int32_t db = PingPongSlot(taskIdx);
         const int32_t nValid = static_cast<int32_t>(chunk.M);
         const int64_t offG = OffsetBHT(chunk.batch, hv, chunk.tokenStart, HV, T);
@@ -403,6 +407,8 @@ public:
             WaitFlag<HardEvent::V_MTE3>(kHeUb0);
             CopyUbToGmElems(gmBetaEff[offG], ubBfp, static_cast<uint32_t>(nValid));
         }
+        TIMER_BLOCK(timer_.TokNoBarrier(AscendTimer::S1_BATE, timerIter));
+        TIMER_BLOCK(timer_.setDynamicActualIter(AscendTimer::S1_BATE, timerIter + 1));
     }
 
     __aicore__ inline void Stage1_OneTask(const ChunkRange &chunk, int64_t hv, int64_t taskIdx)
@@ -471,11 +477,15 @@ public:
         const int32_t db = PingPongSlot(taskIdx);
         const bool shareBothAiv = (HRatio > 2) || (HRatio == 2 && nThis < kTasksPerRound);
         WaitFlag<HardEvent::M_MTE1>(bank);
+        const int timerIter = timerIters_[AscendTimer::S2_KKT]++;
+        TIMER_BLOCK(timer_.TikNoBarrier(AscendTimer::S2_KKT, timerIter));
         MatmulToL0C<InDtype>(l1KHat[taskIdx], l1KHat[taskIdx], l0A[bank], l0B[bank], l0CTask[bank], bt, bt, kk, true,
                              false, false, bank);
         SetFlag<HardEvent::M_FIX>(bank);
         SetFlag<HardEvent::M_MTE1>(bank);
         WaitFlag<HardEvent::M_FIX>(bank);
+        TIMER_BLOCK(timer_.TokNoBarrier(AscendTimer::S2_KKT, timerIter));
+        TIMER_BLOCK(timer_.setDynamicActualIter(AscendTimer::S2_KKT, timerIter + 1));
         DumpKktToUb(l0CTask[bank], db, bank, bank, shareBothAiv);
         SetFlag<HardEvent::FIX_M>(bank);
         if (HRatio <= 1) {
@@ -501,6 +511,8 @@ public:
     __aicore__ inline void Stage3_AivOne(int64_t hv, int64_t taskIdx)
     {
         WaitCubeKktDone(taskIdx);
+        const int timerIter = timerIters_[AscendTimer::S3_MASK]++;
+        TIMER_BLOCK(timer_.TikNoBarrier(AscendTimer::S3_MASK, timerIter));
         const int32_t db = PingPongSlot(taskIdx);
         const int32_t kktDb = PingPongSlot(OwnerTaskIdx(hv, taskIdx));
         MulKktGateVF(ubKkt[kktDb], ubLFull[db]);
@@ -514,6 +526,8 @@ public:
         SetFlag<HardEvent::V_MTE3>(kHeUb0);
         WaitFlag<HardEvent::V_MTE3>(kHeUb0);
         UploadDiagLeavesToL1(l1LeafRight[taskIdx], l1LeafLeft[taskIdx], ubResVcs[db]);
+        TIMER_BLOCK(timer_.TokNoBarrier(AscendTimer::S3_MASK, timerIter));
+        TIMER_BLOCK(timer_.setDynamicActualIter(AscendTimer::S3_MASK, timerIter + 1));
         NotifyAicStage3Done(taskIdx);
     }
 
@@ -547,6 +561,10 @@ public:
         const int32_t bt = static_cast<int32_t>(chunkSize);
         const uint8_t bank = static_cast<uint8_t>(taskIdx & 1);
         WaitFlag<HardEvent::M_MTE1>(bank);
+        const auto timerType = bank == 0 ? AscendTimer::S4_Y0 : AscendTimer::S4_Y1;
+        const int timerIter = timerIters_[timerType]++;
+        s4Iters_[taskIdx] = timerIter;
+        TIMER_BLOCK(timer_.TikNoBarrier(timerType, timerIter));
         MatmulToL0C<float>(l1LeafLeft[taskIdx], l1NegL[taskIdx], l0AfP[bank], l0BfP[bank], l0CTask[taskIdx], bt, bt, bt,
                            false, true, true, bank);
         SetFlag<HardEvent::M_FIX>(bank);
@@ -562,6 +580,10 @@ public:
         SetFlag<HardEvent::FIX_MTE2>(bank);
         WaitFlag<HardEvent::FIX_MTE2>(bank);
         CopyGmNzToL1Fp32(l1Y[taskIdx], gmWsY[WsYOffset(taskIdx)], kChunk64);
+        const auto timerType = bank == 0 ? AscendTimer::S4_Y0 : AscendTimer::S4_Y1;
+        const int timerIter = s4Iters_[taskIdx];
+        TIMER_BLOCK(timer_.TokNoBarrier(timerType, timerIter));
+        TIMER_BLOCK(timer_.setDynamicActualIter(timerType, timerIter + 1));
         NotifyAivStage4Done(taskIdx);
         SetFlag<HardEvent::MTE2_MTE1>(taskIdx);
     }
@@ -577,6 +599,9 @@ public:
         const int32_t bt = static_cast<int32_t>(chunkSize);
         const uint8_t bank = static_cast<uint8_t>(taskIdx & 1);
         WaitFlag<HardEvent::M_MTE1>(bank);
+        const int timerIter = timerIters_[AscendTimer::S5_A]++;
+        s5Iters_[taskIdx] = timerIter;
+        TIMER_BLOCK(timer_.TikNoBarrier(AscendTimer::S5_A, timerIter));
         MatmulToL0C<float>(l1I, l1LeafLeft[taskIdx], l0Af[bank], l0Bf[bank], l0CTask[taskIdx], bt, bt, bt, true, false,
                            false, bank);
         SetFlag<HardEvent::FIX_M>(bank);
@@ -622,6 +647,9 @@ public:
             SetFlag<HardEvent::FIX_MTE1>(taskIdx);
         }
         SetFlag<HardEvent::FIX_M>(bank);
+        const int timerIter = s5Iters_[taskIdx];
+        TIMER_BLOCK(timer_.TokNoBarrier(AscendTimer::S5_A, timerIter));
+        TIMER_BLOCK(timer_.setDynamicActualIter(AscendTimer::S5_A, timerIter + 1));
     }
 
     // ========================= Stage 6 =========================
@@ -630,6 +658,8 @@ public:
     // Tail zero-fills UB then copies M rows.
     __aicore__ inline void Stage6_AivOne(const ChunkRange &chunk, int64_t hv, int64_t taskIdx)
     {
+        const int timerIter = timerIters_[AscendTimer::S6_VB_KBG]++;
+        TIMER_BLOCK(timer_.TikNoBarrier(AscendTimer::S6_VB_KBG, timerIter));
         const int64_t hk = hv / HRatio;
         const int64_t offK = OffsetBHTD(chunk.batch, hk, chunk.tokenStart, HK, T, K);
         const int64_t offV = OffsetBHTD(chunk.batch, hv, chunk.tokenStart, HV, T, V);
@@ -669,6 +699,8 @@ public:
         SetFlag<HardEvent::V_MTE3>(kHeUb1);
         WaitFlag<HardEvent::V_MTE3>(kHeUb1);
         UploadBf16NdToL1(l1Kbg[taskIdx], ubKnd, static_cast<uint32_t>(K));
+        TIMER_BLOCK(timer_.TokNoBarrier(AscendTimer::S6_VB_KBG, timerIter));
+        TIMER_BLOCK(timer_.setDynamicActualIter(AscendTimer::S6_VB_KBG, timerIter + 1));
     }
 
     // ========================= Stage 7 =========================
@@ -676,6 +708,8 @@ public:
     // results in the owning AIV's UB; the next pack drains them to GM.
     __aicore__ inline void Stage7_AicOne(const ChunkRange &chunk, int64_t hv, int64_t taskIdx)
     {
+        const int timerIter = timerIters_[AscendTimer::S7_WU]++;
+        TIMER_BLOCK(timer_.TikNoBarrier(AscendTimer::S7_WU, timerIter));
         const uint32_t rows = static_cast<uint32_t>(chunk.M);
         const uint32_t nK = static_cast<uint32_t>(K);
         const uint32_t nV = static_cast<uint32_t>(V);
@@ -733,6 +767,8 @@ public:
             Fixpipe<InDtype, float, CFG_ROW_MAJOR_UB>(ubS7U[db], l0CS7[1], wuFixpipeParams);
             SetFlag<HardEvent::FIX_M>(1);
         }
+        TIMER_BLOCK(timer_.TokNoBarrier(AscendTimer::S7_WU, timerIter));
+        TIMER_BLOCK(timer_.setDynamicActualIter(AscendTimer::S7_WU, timerIter + 1));
     }
 
     __aicore__ inline void DecodeTask(int64_t base, int64_t nThis, int64_t taskIdx, ChunkRange &chunk, int64_t &hv)
@@ -959,6 +995,11 @@ private:
     LocalTensor<float> l0CTask[4];
 
     int64_t hasBetaOut;
+
+    AscendTimerDevice timer_{};
+    int timerIters_[AscendTimer::DYNAMIC_TYPE_COUNT] = {};
+    int s4Iters_[4] = {};
+    int s5Iters_[4] = {};
 };
 
 } // namespace ChunkGatedDeltaRuleFwdPrepare

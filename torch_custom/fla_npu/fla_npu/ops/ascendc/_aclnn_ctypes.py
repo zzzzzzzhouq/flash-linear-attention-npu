@@ -559,6 +559,14 @@ _GET_WORKSPACE_ARGTYPES = {
     ],
 }
 
+# The diagnostic ABI inserts timer after hOutOptional and before workspaceSize.
+_GDN_FORWARD_ARGTYPES = _GET_WORKSPACE_ARGTYPES["aclnnChunkGatedDeltaRuleFwd"]
+_GET_WORKSPACE_ARGTYPES["aclnnChunkGatedDeltaRuleFwdProfile"] = [
+    *_GDN_FORWARD_ARGTYPES[:-2],
+    ctypes.c_void_p,
+    *_GDN_FORWARD_ARGTYPES[-2:],
+]
+
 
 def _call_aclnn(
     name: str,
@@ -2932,9 +2940,20 @@ def npu_chunk_gated_delta_rule_fwd(
     a_log=None,
     dt_bias=None,
     layout="BNSD",
+    timer=None,
 ):
-    """调用融合 GDN 前向；训练默认导出 gCumsum/A，推理显式设为 False。"""
+    """调用融合 GDN 前向；timer 仅用于诊断，普通调用保持原 ABI。"""
     import torch
+
+    if timer is not None:
+        from .gdn_timer_layout import TIMER_BUFFER_NUMEL
+
+        if timer.dtype != torch.int64 or not timer.is_contiguous():
+            raise RuntimeError("npu_chunk_gated_delta_rule_fwd: timer must be contiguous int64.")
+        if timer.numel() < TIMER_BUFFER_NUMEL:
+            raise RuntimeError(
+                f"npu_chunk_gated_delta_rule_fwd: timer needs at least {TIMER_BUFFER_NUMEL} elements."
+            )
 
     q_shape = _shape(q)
     k_shape = _shape(k)
@@ -3048,7 +3067,7 @@ def npu_chunk_gated_delta_rule_fwd(
     k_rstd = _empty(norm_shape, k, dtype=torch.float32) if use_qk_l2norm_in_kernel else None
     outputs = (o, final_state, g_cumsum, A, beta_eff, h, q_hat, k_hat, q_rstd, k_rstd)
     return _call_aclnn(
-        "aclnnChunkGatedDeltaRuleFwd",
+        "aclnnChunkGatedDeltaRuleFwdProfile" if timer is not None else "aclnnChunkGatedDeltaRuleFwd",
         lambda ctx: [
             ctx.tensor(q, "q"),
             ctx.tensor(k, "k"),
@@ -3077,7 +3096,7 @@ def npu_chunk_gated_delta_rule_fwd(
             ctx.tensor(g_cumsum, "g_cumsum"),
             ctx.tensor(A, "A"),
             ctx.tensor(h, "h"),
-        ],
+        ] + ([ctx.tensor(timer, "timer")] if timer is not None else []),
         outputs,
     )
 
