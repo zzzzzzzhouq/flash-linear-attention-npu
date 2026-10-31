@@ -14,7 +14,7 @@
 
 #include "chunk_fwd_o_struct.h"
 #include "chunk_fwd_o_tiling_key.h"
-#include "../../../../common/kernel_utils/gdn_timer/AscendTimerV2_device.hpp"
+#include "kernel_utils/gdn_timer/AscendTimerV2_device.hpp"
 #if defined(__CCE_AICORE__) && __CCE_AICORE__ == 310
 #include "arch35/gemm/kernel/gdn_fwd_o_kernel.hpp"
 #else

@@ -8,7 +8,7 @@
 
 #include <cstdint>
 #include "kernel_operator.h"
-#include "../../../../../common/kernel_utils/gdn_timer/AscendTimerV2_device.hpp"
+#include "kernel_utils/gdn_timer/AscendTimerV2_device.hpp"
 #include "../chunk_fwd_o_struct.h"
 #include "../chunk_fwd_o_a5_constants.h"
 

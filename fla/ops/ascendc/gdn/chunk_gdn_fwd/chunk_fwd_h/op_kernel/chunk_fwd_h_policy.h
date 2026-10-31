@@ -10,7 +10,7 @@
 #include <cstdint>
 
 #include "kernel_operator.h"
-#include "../../../../common/kernel_utils/gdn_timer/AscendTimerV2_device.hpp"
+#include "kernel_utils/gdn_timer/AscendTimerV2_device.hpp"
 
 namespace GDN {
 
