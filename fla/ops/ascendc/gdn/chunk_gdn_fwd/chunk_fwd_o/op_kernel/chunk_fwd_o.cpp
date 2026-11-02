@@ -102,8 +102,8 @@ __aicore__ inline void ChunkFwdODispatch(GM_ADDR q, GM_ADDR k, GM_ADDR v, GM_ADD
 #ifndef TORCH_MODE
 template <bool USE_EXP2, bool OUTPUT_TOKEN_FIRST>
 __global__ __aicore__ void chunk_fwd_o(GM_ADDR q, GM_ADDR k, GM_ADDR v, GM_ADDR h,
-                                                   GM_ADDR g, GM_ADDR cu_seqlens, GM_ADDR chunk_offsets,
-                                                   GM_ADDR o, GM_ADDR timer, GM_ADDR workspace, GM_ADDR tiling)
+                                                   GM_ADDR g, GM_ADDR cu_seqlens, GM_ADDR chunk_offsets, GM_ADDR timer,
+                                                   GM_ADDR o, GM_ADDR workspace, GM_ADDR tiling)
 {
     KERNEL_TASK_TYPE_DEFAULT(KERNEL_TYPE_MIX_AIC_1_2);
 
