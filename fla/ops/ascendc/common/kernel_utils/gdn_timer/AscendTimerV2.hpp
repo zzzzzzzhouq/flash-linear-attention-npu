@@ -63,7 +63,7 @@ static constexpr int DYNAMIC_ITER_TOTAL_SIZE = DYNAMIC_ITER_PER_CORE_ALIGN * N_C
 #define ENABLE_TIMER 1 // 构建可覆盖为0；所有计时调用均用TIMER_BLOCK。
 #endif
 #ifndef ASCEND_TIMER_EXPLICIT_GM_PUBLISH
-#define ASCEND_TIMER_EXPLICIT_GM_PUBLISH 0 // 仅确认目标发布需求/API/对齐后启用。
+#define ASCEND_TIMER_EXPLICIT_GM_PUBLISH 1 // kernel 末尾显式发布计时数据，与 align 已验证路径一致。
 #endif
 #if ENABLE_TIMER
 #define TIMER_BLOCK(code) \
