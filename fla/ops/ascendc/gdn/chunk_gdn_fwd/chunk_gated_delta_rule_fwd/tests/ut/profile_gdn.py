@@ -54,11 +54,12 @@ def main():
     torch.npu.set_device(args.device)
     torch.manual_seed(args.seed)
     device = torch.device(f"npu:{args.device}")
-    q = torch.randn(args.batch, args.k_heads, args.tokens, args.k_dim, dtype=torch.bfloat16, device=device)
-    k = torch.randn_like(q)
-    v = torch.randn(args.batch, args.v_heads, args.tokens, args.v_dim, dtype=torch.bfloat16, device=device)
-    g = torch.randn(args.batch, args.tokens, args.v_heads, dtype=torch.float32, device=device)
-    beta = torch.rand(args.batch, args.tokens, args.v_heads, dtype=torch.bfloat16, device=device)
+    q = torch.randn(args.batch, args.k_heads, args.tokens, args.k_dim, dtype=torch.bfloat16, device=device) * 0.1
+    k = torch.randn(args.batch, args.k_heads, args.tokens, args.k_dim, dtype=torch.bfloat16, device=device) * 0.1
+    v = torch.randn(args.batch, args.v_heads, args.tokens, args.v_dim, dtype=torch.bfloat16, device=device) * 0.1
+    # 与 align 已验证采集路径一致：g 是小的负 log 衰减，beta 为正值，避免随机正衰减递推溢出。
+    g = -torch.rand(args.batch, args.tokens, args.v_heads, dtype=torch.float32, device=device) * 0.05
+    beta = torch.rand(args.batch, args.tokens, args.v_heads, dtype=torch.float32, device=device) * 0.5 + 0.25
     initial_state = None
     if args.initial_state:
         initial_state = torch.randn(
